@@ -844,6 +844,8 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data = None
         self.data_ids = {}
 
+        self.p_markings = []
+
     def init_interface_data(self, data):
         self.init_attr_values(data)
 
@@ -937,6 +939,9 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.parent.Information.not_shown.clear()
         self.img.clear()
         self.img.setSelection(None)
+        for m in self.p_markings:
+            self.plot.removeItem(m)
+        self.p_markings = []
         self.legend.set_colors(None)
         self.lsx = None
         self.lsy = None
@@ -969,7 +974,7 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
     @staticmethod
     def compute_image(data: Orange.data.Table, attr_x, attr_y,
-                      image_values, image_values_fixed_levels, state: TaskState):
+                      image_values, image_values_fixed_levels, choose, state: TaskState):
 
         if data is None or attr_x is None or attr_y is None:
             raise UndefinedImageException
