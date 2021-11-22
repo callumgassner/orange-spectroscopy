@@ -310,7 +310,7 @@ class _NormalizeCommon(CommonDomain):
                     data.X[nans] = float("nan")
             elif self.method == Normalize.Area:
                 norm_data = Integrate(methods=self.int_method,
-                                      limits=[[self.lower, self.upper]])(data)
+                                    limits=[[self.lower, self.upper]])(data)
                 data.X /= norm_data.X
                 replace_infs(data.X)
             elif self.method == Normalize.SNV:
@@ -851,3 +851,47 @@ class SpSubtract(Preprocess):
                                     data.domain.metas)
         return data.from_table(domain, data)
 
+class SpDivideFeature(SelectColumn):
+    pass
+
+
+class _SpDivideCommon(CommonDomainRef):
+
+    def __init__(self, amount, reference, domain):
+        super().__init__(reference, domain)
+        self.amount = amount
+
+    def transformed(self, data):
+        if len(data):  # numpy does not like to divide shapes (0, b) by (a, b)
+            ref_X = self.interpolate_extend_to(self.reference, getx(data))
+            result = data.X / (self.amount * ref_X)
+            return result
+        else:
+            return data
+
+
+class SpDivide(Preprocess):
+    """
+    Subtract reference spectrum with a multiplication factor
+
+    Set reference
+
+    Parameters
+    ----------
+    amount    : multiplier for reference to subtract from each spectrum (float)
+    reference : reference single-channel (Orange.data.Table)
+    """
+
+    def __init__(self, reference, amount=0.):
+        if reference is None or len(reference) != 1:
+            raise WrongReferenceException("Reference data should have length 1")
+        self.reference = reference
+        self.amount = amount
+
+    def __call__(self, data):
+        common = _SpDivideCommon(self.amount, self.reference, data.domain)
+        atts = [a.copy(compute_value=SpDivideFeature(i, common))
+                for i, a in enumerate(data.domain.attributes)]
+        domain = Orange.data.Domain(atts, data.domain.class_vars,
+                                    data.domain.metas)
+        return data.from_table(domain, data)
