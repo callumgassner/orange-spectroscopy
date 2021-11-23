@@ -37,8 +37,11 @@ def Azimuth(x,a0,a1,a2):
 def calc_angles(a0,a1):
     return np.degrees(0.5*np.arctan(a0/a1))
 
-def ampl(a0,a1,a2):
+def ampl1(a0,a1,a2):
     return (a2+(math.sqrt(a0**2+a1**2))+a2-(math.sqrt(a0**2+a1**2)))
+
+def ampl2(a0,a1):
+    return (2*(math.sqrt(a0**2+a1**2)))
 
 def OrFunc(alpha,a0,a1,a2):
     if alpha == 0:
@@ -54,8 +57,10 @@ def compute(images, wnidx, alpha):
     Az.fill(np.nan)
     Hermans = np.empty(images[0].shape[:2])
     Hermans.fill(np.nan)
-    amp = np.empty(images[0].shape[:2])
-    amp.fill(np.nan)
+    ampabs = np.empty(images[0].shape[:2])
+    ampabs.fill(np.nan)
+    funcamp = np.empty(images[0].shape[:2])
+    funcamp.fill(np.nan)
     r_squared = np.empty(images[0].shape[:2])
     r_squared.fill(np.nan)
     a0 = np.empty((images[0].shape[:2]))
@@ -111,7 +116,8 @@ def compute(images, wnidx, alpha):
                     elif Az1 > 90:
                         Az[i,j] = Az2    
 
-            amp[i,j] = ampl(*params)
+            ampabs[i,j] = ampl1(*params)
+            funcamp[i,j] = ampl2(params[0],params[1])
             Hermans[i,j] = OrFunc(alpha, *params)
             a0[i,j] = params[0]
             a1[i,j] = params[1]
@@ -124,7 +130,8 @@ def compute(images, wnidx, alpha):
 
     Az = np.reshape(Az, (Az.shape[0],Az.shape[1],1))
     Hermans = np.reshape(Hermans, (Hermans.shape[0],Hermans.shape[1],1))
-    amp = np.reshape(amp, (amp.shape[0],amp.shape[1],1))
+    ampabs = np.reshape(ampabs, (ampabs.shape[0],ampabs.shape[1],1))
+    funcamp = np.reshape(funcamp, (funcamp.shape[0],funcamp.shape[1],1))
     r_squared = np.reshape(r_squared, (r_squared.shape[0],r_squared.shape[1],1))
     a0 = np.reshape(a0, (a0.shape[0],a0.shape[1],1))
     a1 = np.reshape(a1, (a1.shape[0],a1.shape[1],1))
@@ -134,7 +141,7 @@ def compute(images, wnidx, alpha):
     deg90 = np.reshape(deg90, (deg90.shape[0],deg90.shape[1],1))
     deg135 = np.reshape(deg135, (deg135.shape[0],deg135.shape[1],1))
 
-    return Az, Hermans, amp, r_squared, a0, a1, a2, deg0, deg45, deg90, deg135
+    return Az, Hermans, ampabs, funcamp, r_squared, a0, a1, a2, deg0, deg45, deg90, deg135
 
 
 
@@ -147,23 +154,24 @@ def process_polar_abs(images, wnidx, alpha, var, xy):
     wnidx = wnidx
 
     
-    th, he, amp, r2, a0, a1, a2, deg0, deg45, deg90, deg135 = compute(hypercubes, wnidx, alpha)
+    th, he, ampabs, funcamp, r2, a0, a1, a2, deg0, deg45, deg90, deg135 = compute(hypercubes, wnidx, alpha)
 
     var = [var]
     thr = np.radians(th)
     # join absorbance from images into a single image with a mean
     thrt = hypercube_to_table(thr, var, lsx, lsy)
     tht = hypercube_to_table(th, var, lsx, lsy)
-    ampt = hypercube_to_table(amp, var, lsx, lsy)
+    ampabst = hypercube_to_table(ampabs, var, lsx, lsy)
+    funcampt = hypercube_to_table(funcamp, var, lsx, lsy)
     het = hypercube_to_table(he, var, lsx, lsy)
     r2t = hypercube_to_table(r2, var, lsx, lsy)
 
-    output = ampt
+    output = ampabst
     output.th = thrt
     output.amp = het
 
-    data = np.concatenate((th, he, amp, r2), axis=2)    
-    dom = ['Azimuth Angle', 'Hermans Orientation Function','Amplitude','R-Squared of fitted cosine function']
+    data = np.concatenate((th, he, ampabs, funcamp, r2), axis=2)    
+    dom = ['Azimuth Angle', 'Hermans Orientation Function','Amplitude (Abs)','Function Amplitude','R-Squared of fitted cosine function']
     datat = hypercube_to_table(data, dom, lsx, lsy)
 
     model = np.concatenate((r2, a0, a1, a2, deg0, deg45, deg90, deg135), axis=2)
@@ -171,7 +179,7 @@ def process_polar_abs(images, wnidx, alpha, var, xy):
     modelt = hypercube_to_table(model, modeldom, lsx, lsy)
 
 
-    return output, tht, ampt, het, r2t, datat, modelt
+    return output, tht, ampabst, funcampt, het, r2t, datat, modelt
 
 #calculate by "Stoke's Method"
 def compute_stokes(images, wnidx):
@@ -241,7 +249,7 @@ def hypercube_to_table(hc, wns, lsx, lsy):
 
 class OWPolar(OWWidget):
     # Widget's name as displayed in the canvas
-    name = "Polar9"
+    name = "Polar10"
     
     # Short widget description
     description = (
@@ -252,11 +260,11 @@ class OWPolar(OWWidget):
     # Define inputs and outputs
     class Inputs:
         degree_sign = u"\N{DEGREE SIGN}"
-        data = Input("Data", Orange.data.Table, default=True, replaces=[f'0{degree_sign}',f'45{degree_sign}',f'90{degree_sign}',f'135{degree_sign}'])        
-        deg0 = Input(f"0{degree_sign}", Orange.data.Table, replaces=['Data'])
-        deg45 = Input(f"45{degree_sign}", Orange.data.Table, replaces=['Data'])
-        deg90 = Input(f"90{degree_sign}", Orange.data.Table, replaces=['Data'])
-        deg135 = Input(f"135{degree_sign}\-45{degree_sign}", Orange.data.Table,replaces=['Data'])
+        data = Input("Data", Orange.data.Table, default=True)        
+        deg0 = Input(f"0{degree_sign}", Orange.data.Table)
+        deg45 = Input(f"45{degree_sign}", Orange.data.Table)
+        deg90 = Input(f"90{degree_sign}", Orange.data.Table)
+        deg135 = Input(f"135{degree_sign}\-45{degree_sign}", Orange.data.Table)
 
 
     class Outputs:
@@ -481,7 +489,7 @@ class OWPolar(OWWidget):
                 wnidx = self.data.domain.index(f'{self.feature}')
                 var = self.data.domain[wnidx].name
 
-                out, tht, ampt, het, r2t, comb, model = process_polar_abs(images, wnidx, alpha, var, xy)
+                out, tht, ampt, funcampt, het, r2t, comb, model = process_polar_abs(images, wnidx, alpha, var, xy)
                 if np.isnan(comb.X).any():
                     self.Warning.wrongdata()
                 else:
@@ -500,7 +508,7 @@ class OWPolar(OWWidget):
                 if var == self.deg45.domain[wnidx].name == self.deg90.domain[wnidx].name == self.deg135.domain[wnidx].name:
                     images = [self.deg0, self.deg45, self.deg90, self.deg135]
 
-                    out, tht, ampt, het, r2t, comb, model = process_polar_abs(images, wnidx, alpha, var, xy)
+                    out, tht, ampt, funcampt, het, r2t, comb, model = process_polar_abs(images, wnidx, alpha, var, xy)
                     if np.isnan(comb.X).any():
                         self.Warning.wrongdata()
                     else:
