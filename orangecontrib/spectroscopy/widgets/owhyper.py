@@ -52,6 +52,7 @@ from orangecontrib.spectroscopy.widgets.gui import MovableVline, lineEditDecimal
 from orangecontrib.spectroscopy.widgets.line_geometry import in_polygon, intersect_line_segments
 from orangecontrib.spectroscopy.widgets.utils import \
     SelectionGroupMixin, SelectionOutputsMixin
+from pyqtgraph.functions import mkBrush
 
 IMAGE_TOO_BIG = 1024*1024*100
 
@@ -178,6 +179,7 @@ class ImageItemNan(pg.ImageItem):
         else:
             lut = self.lut
 
+        image = self.image
         levels = self.levels
 
         if self.axisOrder == 'col-major':
@@ -244,12 +246,23 @@ _color_palettes = [
     # misc
     ("rainbow", {0: np.array(colorcet.rainbow_bgyr_35_85_c73) * 255}),
     ("isolum", {0: np.array(colorcet.isoluminant_cgo_80_c38) * 255}),
+    ("Jet", {0: pg.colormap.get("jet", source='matplotlib').getLookupTable(nPts=256)}),
+    ("Viridis", {0: pg.colormap.get("viridis", source='matplotlib').getLookupTable(nPts=256)}),
 
     # cyclic
     ("HSV", {0: pg.colormap.get("hsv", source='matplotlib').getLookupTable(nPts=256)}),
-
 ]
-
+#r, g, b, c, m, y, k, w
+vector_colour = [
+    ("Black", {0: (0,0,0)}),
+    ("White", {0: (255,255,255)}),
+    ("Red", {0: (255,0,0)}),
+    ("Green", {0: (0,255,0)}),
+    ("Blue", {0: (0,0,255)}),
+    ("Cyan", {0: (0,255,255)}),
+    ("Magenta", {0: (255,0,255)}),
+    ("Yellow", {0: (255,255,0)}),    
+]
 
 def palette_gradient(colors):
     n = len(colors)
@@ -287,6 +300,13 @@ def color_palette_model(palettes, iconsize=QSize(64, 16)):
         model.appendRow([item])
     return model
 
+def vector_colour_model(colours):
+    model = QStandardItemModel()
+    for name, palette in colours:
+        item = QStandardItem(name)
+        item.setData(palette, Qt.UserRole)
+        model.appendRow([item])
+    return model
 
 class AxesSettingsMixin:
 
@@ -976,9 +996,30 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
     def set_visible_image_comp_mode(self, comp_mode: QPainter.CompositionMode):
         self.vis_img.setCompositionMode(comp_mode)
 
+    def set_vector_co(self, pen):
+        self.c.setPen(pen)
+    
+    def set_vector_scale(self, scale):
+        th = self.v[:,0]
+        v_mag = self.v[:,1]
+        amp = v_mag / max(v_mag) * (scale/100)# TODO, new setting: range
+        wy = self.shifty*2
+        wx = self.shiftx*2
+        y = np.linspace(*self.lsy)[self.yindex[self.valid]]
+        x = np.linspace(*self.lsx)[self.xindex[self.valid]]
+        dispx = amp*wx/2*np.cos(np.radians(th))
+        dispy = amp*wy/2*np.sin(np.radians(th))
+        xcurve = np.empty((dispx.shape[0]*2))
+        ycurve = np.empty((dispy.shape[0]*2))
+        xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
+        ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
+        connect = np.ones((dispx.shape[0]*2))
+        connect[1::2] = 0
+        self.c.setData(x=xcurve, y=ycurve, connect=connect) 
+
     @staticmethod
     def compute_image(data: Orange.data.Table, attr_x, attr_y,
-                      image_values, image_values_fixed_levels, choose, state: TaskState):
+                      vector_values, image_values, image_values_fixed_levels, choose, state: TaskState):
 
         if data is None or attr_x is None or attr_y is None:
             raise UndefinedImageException
@@ -1124,6 +1165,13 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     rgb_green_value = ContextSetting(None)
     rgb_blue_value = ContextSetting(None)
 
+    show_vector_plot = Setting(False)
+    vector_angle = ContextSetting(None)
+    vector_magnitude = ContextSetting(None)
+    vector_colour_index = Setting(0)
+    vector_scale = Setting(1)
+    vector_opacity = Setting(255)
+
     show_visible_image = Setting(False)
     visible_image_name = Setting(None)
     visible_image_composition = Setting('Normal')
@@ -1237,11 +1285,13 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.imageplot = ImagePlot(self)
         self.imageplot.selection_changed.connect(self.output_image_selection)
 
+        self.setup_vector_plot_controls()
+
         # do not save visible image (a complex structure as a setting;
         # only save its name)
         self.visible_image = None
         self.setup_visible_image_controls()
-
+        
         self.curveplot = CurvePlotHyper(self, select=SELECTONE)
         self.curveplot.selection_changed.connect(self.redraw_integral_info)
         self.curveplot.plot.vb.x_padding = 0.005  # pad view so that lines are not hidden
@@ -1350,6 +1400,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def init_interface_data(self, data):
         self.init_attr_values(data)
         self.init_visible_images(data)
+        self.init_vector_plot(data)        
 
     def output_image_selection(self):
         _, selected = self.send_selection(self.data, self.imageplot.selection_group)
