@@ -17,8 +17,8 @@ import bottleneck
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.graphicsItems.ViewBox import ViewBox
-from pyqtgraph import Point, GraphicsObject
 
+from pyqtgraph import Point, GraphicsObject
 import Orange.data
 from Orange.data import DiscreteVariable
 from Orange.widgets.widget import OWWidget, Msg, OWComponent, Input
@@ -40,7 +40,7 @@ from orangecontrib.spectroscopy.utils import apply_columns_numpy
 from orangecontrib.spectroscopy.widgets.line_geometry import \
     distance_curves, intersect_curves_chunked
 from orangecontrib.spectroscopy.widgets.gui import lineEditFloatOrNone, pixel_decimals, \
-    float_to_str_decimals as strdec
+    VerticalPeakLine, float_to_str_decimals as strdec
 from orangecontrib.spectroscopy.widgets.utils import \
     SelectionGroupMixin, SelectionOutputsMixin
 
@@ -648,6 +648,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
     range_x2 = Setting(None)
     range_y1 = Setting(None)
     range_y2 = Setting(None)
+    peak_labels_saved = Setting([], schema_only=True)
     feature_color = ContextSetting(None)
     color_individual = Setting(False)  # color individual curves (in a cycle) if no feature_color
     invertX = Setting(False)
@@ -688,6 +689,8 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             self.plot.getAxis(pos).setStyle(showValues=False)
 
         self.markings = []
+        self.peak_labels = []
+
         self.vLine = pg.InfiniteLine(angle=90, movable=False)
         self.hLine = pg.InfiniteLine(angle=0, movable=False)
         self.plot.scene().sigMouseMoved.connect(self.mouse_moved_viewhelpers)
@@ -720,6 +723,8 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.MOUSE_RADIUS = 20
 
         self.clear_graph()
+
+        self.load_peak_labels()
 
         # interface settings
         self.location = True  # show current position
@@ -789,6 +794,14 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         )
         self.invertX_menu.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         actions.append(self.invertX_menu)
+
+        single_peak = QAction(
+            "Add Peak Label", self, shortcut=Qt.Key_P,
+            triggered=self.add_peak_label
+        )
+        actions.append(single_peak)
+        single_peak.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+
         if self.selection_type == SELECTMANY:
             select_curves = QAction(
                 "Select (line)", self, triggered=self.line_select_start,
@@ -987,6 +1000,27 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.plot.showGrid(self.show_grid, self.show_grid, alpha=0.3)
         self.show_grid_a.setChecked(self.show_grid)
 
+    def add_peak_label(self, position=None):
+        label_line = VerticalPeakLine()
+        label_line.setPos(position if position else np.mean(self.plot.viewRange()[0]))
+        label_line.sigDeleteRequested.connect(self.delete_label)
+        self.peak_labels.append(label_line)
+        self.plotview.addItem(label_line, ignore_bounds=True)
+        label_line.updateLabel()  # rounding
+        return label_line
+
+    def delete_label(self, label):
+        self.peak_labels.remove(label)
+        self.plotview.removeItem(label)
+
+    def save_peak_labels(self):
+        self.peak_labels_saved = [p.save_info() for p in self.peak_labels]
+
+    def load_peak_labels(self):
+        for info in self.peak_labels_saved:
+            peak_label = self.add_peak_label()
+            peak_label.load_info(info)
+
     def invertX_changed(self):
         self.invertX = not self.invertX
         self.invertX_apply()
@@ -1051,6 +1085,9 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
         for m in self.markings:
             self.plot.addItem(m, ignoreBounds=True)
+
+        for p in self.peak_labels:
+            self.plot.addItem(p, ignoreBounds=True)
 
     def resized(self):
         self.important_decimals = pixel_decimals(self.plot.vb)
@@ -1340,7 +1377,6 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         # for zoom to work correctly
         self.curves_plotted.append((x, np.array([ylow, yhigh])))
 
-
     @staticmethod
     def _generate_pens(color, color_unselected=None, color_selected=None):
         pen_subset = pg.mkPen(color=color, width=1)
@@ -1549,7 +1585,7 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
 
     want_control_area = False
 
-    settings_version = 3
+    settings_version = 4
     settingsHandler = DomainContextHandler()
 
     curveplot = SettingProvider(CurvePlot)
@@ -1565,6 +1601,7 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
     def __init__(self):
         super().__init__()
         SelectionOutputsMixin.__init__(self)
+        self.settingsAboutToBePacked.connect(self.prepare_special_settings)
         self.curveplot = CurvePlot(self, select=SELECTMANY)
         self.curveplot.selection_changed.connect(self.selection_changed)
         self.curveplot.new_sampling.connect(self._showing_sample_info)
@@ -1602,6 +1639,9 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
     def save_graph(self):
         # directly call save_graph so it hides axes
         self.curveplot.save_graph()
+
+    def prepare_special_settings(self):
+        self.curveplot.save_peak_labels()
 
     def onDeleteWidget(self):
         self.curveplot.shutdown()

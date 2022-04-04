@@ -20,6 +20,7 @@ from orangecontrib.spectroscopy.preprocess import Interpolate
 
 NAN = float("nan")
 
+
 def wait_for_graph(widget, timeout=5000):
     concurrent = widget.curveplot.show_average_thread
     if concurrent.task is not None:
@@ -496,6 +497,30 @@ class TestOWSpectra(WidgetTest):
         with set_png_graph_save() as fname:
             self.widget.save_graph()
             self.assertGreater(os.path.getsize(fname), 10000)
+
+    def test_peakline_keep_precision(self):
+        self.widget.curveplot.add_peak_label()  # precision 1 (no data)
+        self.send_signal("Data", self.collagen)
+        self.widget.curveplot.add_peak_label()  # precision 2 (data range is collagen)
+        label_text = self.widget.curveplot.peak_labels[0].label.textItem.toPlainText()
+        label_text2 = self.widget.curveplot.peak_labels[1].label.textItem.toPlainText()
+        settings = self.widget.settingsHandler.pack_data(self.widget)
+        self.widget = self.create_widget(OWSpectra, stored_settings=settings)
+        label_text_loaded = self.widget.curveplot.peak_labels[0].label.textItem.toPlainText()
+        label_text2_loaded = self.widget.curveplot.peak_labels[1].label.textItem.toPlainText()
+        self.assertEqual(label_text, label_text_loaded)
+        self.assertEqual(label_text2, label_text2_loaded)
+
+    def test_peakline_remove(self):
+        self.widget.curveplot.add_peak_label()
+        self.send_signal("Data", self.collagen)
+        self.widget.curveplot.add_peak_label()
+        self.widget.curveplot.peak_labels[0].request_deletion()
+        self.assertEqual(len(self.widget.curveplot.peak_labels), 1)
+        info = self.widget.curveplot.peak_labels[0].save_info()
+        self.assertAlmostEqual(info[0], 1351.9123)
+        self.widget.curveplot.peak_labels[0].request_deletion()
+        self.assertEqual(len(self.widget.curveplot.peak_labels), 0)
 
     def test_filter_unknowns(self):
         self.send_signal("Data", self.unknown_pts)

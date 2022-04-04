@@ -3,8 +3,8 @@ from decimal import Decimal
 from abc import ABCMeta, abstractmethod
 
 from AnyQt.QtCore import QLocale, Qt, QSize
-from AnyQt.QtGui import QDoubleValidator, QIntValidator, QValidator
-from AnyQt.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QSizePolicy
+from AnyQt.QtGui import QDoubleValidator, QIntValidator, QValidator, QColor
+from AnyQt.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QSizePolicy, QMenu, QAction
 from AnyQt.QtCore import pyqtSignal as Signal
 
 import pyqtgraph as pg
@@ -474,3 +474,45 @@ class XPosLineEdit(QWidget, OWComponent):
     def focusInEvent(self, *e):
         self.focusIn.emit()
         return QWidget.focusInEvent(self, *e)
+
+
+class VerticalPeakLine(pg.InfiniteLine):
+
+    sigDeleteRequested = Signal(object)
+
+    def __init__(self, pos=None):
+        super().__init__(pos, angle=90, movable=True, span=(0.02, 0.98))
+        self.setPen(pg.mkPen(color=QColor(Qt.black), width=2, style=Qt.DotLine))
+        self.label = pg.InfLineLabel(self, text="", position=1)
+        self.label.setColor(color=QColor(Qt.black))
+        self.label.setMovable(True)
+        self.sigDragged.connect(self.updateLabel)
+
+    def save_info(self):
+        return self.value(), self.label.orthoPos, self.label.textItem.toPlainText()
+
+    def load_info(self, info):
+        pos, textpos, text = info
+        self.setPos(pos)
+        self.label.setPosition(textpos)
+        self.label.setText(text)
+
+    def request_deletion(self):
+        self.sigDeleteRequested.emit(self)
+
+    def contextMenuEvent(self, ev):
+        menu = QMenu()
+        delete = QAction(
+            "Delete", self, shortcut=Qt.Key_Delete, checkable=False,
+            triggered=lambda x: self.request_deletion()
+        )
+        menu.addAction(delete)
+        menu.exec(ev.screenPos())
+
+    def updateLabel(self):
+        v = self.value()
+        dx, _ = pixel_decimals(self.getViewBox())
+        if v is not None:
+            v = Decimal(float_to_str_decimals(v, dx))
+        self.label.setText(str(v))
+        self.update()

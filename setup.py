@@ -131,7 +131,7 @@ if __name__ == '__main__':
             'spectral>=0.18',
             'serverfiles>=0.2',
             'AnyQt>=0.0.6',
-            'pyqtgraph>=0.10.0',
+            'pyqtgraph>=0.11.1',
             'colorcet',
             'h5py',
             'extranormal3',
