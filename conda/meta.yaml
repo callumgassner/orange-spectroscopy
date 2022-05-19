@@ -30,7 +30,7 @@ requirements:
     - spectral >=0.18
     - serverfiles >=0.2
     - AnyQt >=0.0.6
-    - pyqtgraph >=0.10.0
+    - pyqtgraph >=0.11.1,!=0.12.4
     - colorcet
     - h5py
     - extranormal3 >=0.0.3

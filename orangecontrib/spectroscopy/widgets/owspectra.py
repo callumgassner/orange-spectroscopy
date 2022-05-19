@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 from AnyQt.QtWidgets import QWidget, QGraphicsItem, QPushButton, QMenu, \
     QGridLayout, QAction, QVBoxLayout, QApplication, QWidgetAction, QLabel, \
     QShortcut, QToolTip, QGraphicsRectItem, QGraphicsTextItem
-from AnyQt.QtGui import QColor, QPixmapCache, QPen, QKeySequence
+from AnyQt.QtGui import QColor, QPixmapCache, QPen, QKeySequence, QFontDatabase
 from AnyQt.QtCore import Qt, QRectF, QPointF, QObject
 from AnyQt.QtCore import pyqtSignal
 
@@ -707,8 +707,13 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.pen_normal = defaultdict(lambda: pen_normal)
         self.pen_subset = defaultdict(lambda: pen_subset)
         self.pen_selected = defaultdict(lambda: pen_selected)
-        self.label = pg.TextItem("", anchor=(1, 0))
+
+        self.label = pg.TextItem("", anchor=(1, 0), fill="#FFFFFFBB")
         self.label.setText("", color=(0, 0, 0))
+        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        self.label.setFont(font)
+        self.label.setZValue(100000)
+
         self.discrete_palette = None
         QPixmapCache.setCacheLimit(max(QPixmapCache.cacheLimit(), 100 * 1024))
         self.curves_cont = PlotCurvesItem()
@@ -1195,7 +1200,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             self.crosshair_hidden = bool(labels)
 
             if self.location and not labels:
-                labels = strdec(posx, self.important_decimals[0]) + " " + \
+                labels = strdec(posx, self.important_decimals[0]) + "  " + \
                          strdec(posy, self.important_decimals[1])
             self.label.setText(labels, color=(0, 0, 0))
 

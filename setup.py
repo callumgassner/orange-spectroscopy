@@ -119,7 +119,7 @@ if __name__ == '__main__':
         long_description_content_type='text/markdown',
         author='Canadian Light Source, Biolab UL, Soleil, Elettra',
         author_email='marko.toplak@gmail.com',
-        version="0.6.4",
+        version="0.6.5",
         packages=PACKAGES,
         package_data=PACKAGE_DATA,
         data_files=DATA_FILES,
@@ -131,7 +131,7 @@ if __name__ == '__main__':
             'spectral>=0.18',
             'serverfiles>=0.2',
             'AnyQt>=0.0.6',
-            'pyqtgraph>=0.11.1',
+            'pyqtgraph>=0.11.1,!=0.12.4',  # https://github.com/pyqtgraph/pyqtgraph/issues/2237
             'colorcet',
             'h5py',
             'extranormal3',
