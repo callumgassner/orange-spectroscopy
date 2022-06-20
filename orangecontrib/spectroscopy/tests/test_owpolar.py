@@ -102,15 +102,15 @@ class TestOWPolar(WidgetTest):
         cls.pol_widget.__init__()
         cls.mock_in_node = cls.scheme.new_node(widget_description(MockIn))
         cls.mock_in_widget = cls.scheme.widget_for_node(cls.mock_in_node)
-        cls.multifile = Orange.data.Table("polar/4-angle-ftir_multifile.pkl")
-        cls.in1 = Orange.data.Table("polar/4-angle-ftir_multiin1.pkl")
-        cls.in2 = Orange.data.Table("polar/4-angle-ftir_multiin2.pkl")
-        cls.in3 = Orange.data.Table("polar/4-angle-ftir_multiin3.pkl")
-        cls.in4 = Orange.data.Table("polar/4-angle-ftir_multiin4.pkl")
-        cls.multifile_polar = Orange.data.Table("polar/4-angle-ftir_multifile_polar-results.pkl")
-        cls.multifile_model = Orange.data.Table("polar/4-angle-ftir_multifile_model-results.pkl")
-        cls.multiin_polar = Orange.data.Table("polar/4-angle-ftir_multiin_polar-results.pkl")
-        cls.multiin_model = Orange.data.Table("polar/4-angle-ftir_multiin_model-results.pkl")
+        cls.multifile = Orange.data.Table("polar/4-angle-ftir_multifile.tab")
+        cls.in1 = Orange.data.Table("polar/4-angle-ftir_multiin1.tab")
+        cls.in2 = Orange.data.Table("polar/4-angle-ftir_multiin2.tab")
+        cls.in3 = Orange.data.Table("polar/4-angle-ftir_multiin3.tab")
+        cls.in4 = Orange.data.Table("polar/4-angle-ftir_multiin4.tab")
+        cls.multifile_polar = Orange.data.Table("polar/4-angle-ftir_multifile_polar-results.tab")
+        cls.multifile_model = Orange.data.Table("polar/4-angle-ftir_multifile_model-results.tab")
+        cls.multiin_polar = Orange.data.Table("polar/4-angle-ftir_multiin_polar-results.tab")
+        cls.multiin_model = Orange.data.Table("polar/4-angle-ftir_multiin_model-results.tab")
         
     def test_multifile_init(self):
         print('test_multifile_init')
@@ -145,7 +145,7 @@ class TestOWPolar(WidgetTest):
         for i in self.pol_widget.multiin_lines:
             self.assertFalse(i.isEnabled())
         self.pol_widget.angles = self.pol_widget.anglemetas[0]
-        self.assertEqual(self.pol_widget.angles, self.multifile.domain.metas[3])
+        self.assertEqual(self.pol_widget.angles, self.multifile.domain.metas[2])
         self.pol_widget._change_angles()
         self.assertEqual(len(self.pol_widget.labels), 4)
         self.assertEqual(len(self.pol_widget.lines), 4)
@@ -158,9 +158,9 @@ class TestOWPolar(WidgetTest):
         self.assertEqual(self.pol_widget.map_x, self.multifile.domain.metas[0])
         self.pol_widget.map_y = self.pol_widget.y_axis[1]
         self.assertEqual(self.pol_widget.map_y, self.multifile.domain.metas[1])
-        self.pol_widget.feats = [self.pol_widget.feat_view.model()[:][3], self.pol_widget.feat_view.model()[:][4]]
-        self.assertEqual(self.pol_widget.feats[0], self.multifile.domain.metas[5])
-        self.assertEqual(self.pol_widget.feats[1], self.multifile.domain.metas[6])
+        self.pol_widget.feats = [self.pol_widget.feat_view.model()[:][2], self.pol_widget.feat_view.model()[:][3]]
+        self.assertEqual(self.pol_widget.feats[0], self.multifile.domain.metas[3])
+        self.assertEqual(self.pol_widget.feats[1], self.multifile.domain.metas[4])
         self.pol_widget.alpha = 0
         self.pol_widget.invert_angles = True
         self.pol_widget.autocommit = True
@@ -209,8 +209,8 @@ class TestOWPolar(WidgetTest):
         self.assertEqual(self.pol_widget.map_y, self.in1.domain.metas[1])
 
         self.pol_widget.feats = [self.pol_widget.feat_view.model()[:][2], self.pol_widget.feat_view.model()[:][3]]
-        self.assertEqual(self.pol_widget.feats[0], self.in1.domain.metas[4].copy(compute_value=None))
-        self.assertEqual(self.pol_widget.feats[1], self.in1.domain.metas[5].copy(compute_value=None))
+        self.assertEqual(self.pol_widget.feats[0], self.in1.domain.metas[2].copy(compute_value=None))
+        self.assertEqual(self.pol_widget.feats[1], self.in1.domain.metas[3].copy(compute_value=None))
         self.pol_widget.alpha = 0
         self.pol_widget.invert_angles = True
         self.pol_widget.autocommit = True
@@ -395,4 +395,3 @@ class TestOWPolar(WidgetTest):
 if __name__ == "__main__":
     unittest.main()        
 
-        
