@@ -7,6 +7,7 @@ import math
 from types import SimpleNamespace
 import numpy as np
 import pandas as pd
+from AnyQt.QtCore import QItemSelectionModel, QItemSelection, QItemSelectionRange
 from scipy.optimize import curve_fit
 
 
@@ -21,11 +22,25 @@ from Orange.widgets.settings import \
 from Orange.widgets.utils.itemmodels import DomainModel
 from Orange.widgets.utils.concurrent import TaskState, ConcurrentWidgetMixin
 from Orange.widgets.data import owconcatenate
+from Orange.widgets.data.oweditdomain import disconnected
 from orangewidget.utils.listview import ListViewSearch
-from orangewidget.workflow.widgetsscheme import WidgetsScheme
 from orangewidget.gui import LineEditWFocusOut
 
 from AnyQt.QtWidgets import QFormLayout, QWidget, QListView, QLabel, QSizePolicy
+
+def _restore_selected_items(model, view, setting, connector):
+    selection = QItemSelection()
+    sel_model: QItemSelectionModel = view.selectionModel()
+    with disconnected(sel_model.selectionChanged,
+                      connector):
+        valid = []
+        model_values = model[:]
+        for var in setting:
+            index = model_values.index(var)
+            model_index = view.model().index(index, 0)
+            selection.append(QItemSelectionRange(model_index))
+            valid.append(var)
+        sel_model.select(selection, QItemSelectionModel.ClearAndSelect)
 
 class Results(SimpleNamespace):
     out = None
@@ -406,11 +421,11 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
 
     want_main_area = False
     resizing_enabled = True
-    alpha = ContextSetting(0)
+    alpha = Setting(0, schema_only=True)
 
     map_x = ContextSetting(None)
     map_y = ContextSetting(None)
-    invert_angles = Setting(False)
+    invert_angles = Setting(False, schema_only=True)
 
     angles = None
     anglst = Setting([], packable=False)
@@ -449,7 +464,6 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         self.merge_domains = owconcatenate.OWConcatenate.merge_domains
 
         self._data_inputs: List[Optional[Table]] = []
-        self.feats = None
 
         hbox = gui.hBox(self.controlArea)
         #col 1
@@ -485,6 +499,11 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         self.feat_view.selectionModel().selectionChanged.connect(self._feat_changed)
         vbox1.layout().addWidget(self.feat_view)
         vbox1.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Minimum))
+        self.contextOpened.connect(
+            lambda: _restore_selected_items(model=self.featureselect,
+                                            view=self.feat_view,
+                                            setting=self.feats,
+                                            connector=self._feat_changed))
 
         #col 3
         vbox = gui.vBox(hbox, "Parameters")
@@ -516,10 +535,6 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         gui.auto_commit(self.controlArea, self, "autocommit", "Apply", commit=self.commit)
         self._change_input()
         self.contextAboutToBeOpened.connect(lambda x: self.init_attr_values(x[0]))
-
-
-        widgets_scheme: WidgetsScheme = self.signalManager.workflow()
-        self.widget_node = widgets_scheme.node_for_widget(self)
 
 
     def _feat_changed(self):
@@ -674,7 +689,6 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
 
     def handleNewSignals(self):
         self.data = None
-        self.feats = None
         self.closeContext()
         self.Warning.clear()
         self.Outputs.polar.send(None)
@@ -685,8 +699,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         self.clear_angles(self.multiin_anglst, self.multiin_lines,
                           self.multiin_labels, self.multiin)
 
-        inputlinks = self.signalManager.workflow().input_links(self.widget_node)
-        names = [name.source_node.title for name in inputlinks]
+        names = [i.name for i in self.data]
 
         tempangles = np.linspace(0, 180, len(self.data)+1)
         for i in range(len(self.data)):
@@ -721,7 +734,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
             self.sorted_data = [table.transform(domain1) for table in tables]
             self.openContext(Table.from_domain(domain2))
 
-        self.commit.deferred()
+        self.commit.now()
 
     @gui.deferred
     def commit(self):
