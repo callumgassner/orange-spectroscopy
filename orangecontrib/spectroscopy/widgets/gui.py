@@ -483,7 +483,7 @@ class VerticalPeakLine(pg.InfiniteLine):
     def __init__(self, pos=None):
         super().__init__(pos, angle=90, movable=True, span=(0.02, 0.98))
         self.setPen(pg.mkPen(color=QColor(Qt.black), width=2, style=Qt.DotLine))
-        self.label = pg.InfLineLabel(self, text="", position=1)
+        self.label = pg.InfLineLabel(self, text="", position=1, fill="#FFFFFFBB")
         self.label.setColor(color=QColor(Qt.black))
         self.label.setMovable(True)
         self.sigDragged.connect(self.updateLabel)
