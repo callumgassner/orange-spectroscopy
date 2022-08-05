@@ -28,11 +28,11 @@ Input Examples
 -------
 MultiFile Input
 
-![](images/Polar-Example1.png)
+![](images/Polar-Example1.PNG)
 
 Multiple Inputs
 
-![](images/Polar-Example2.png)
+![](images/Polar-Example2.PNG)
 
 
 1. Hikima, Y.;  Morikawa, J.; Hashimoto, T., Wavenumber Dependence of FT-IR Image of Molecular Orientation in Banded Spherulites of Poly(3-hydroxybutyrate) and Poly(L-lactic acid). Macromolecules 2013, 46, 1582-1590.
