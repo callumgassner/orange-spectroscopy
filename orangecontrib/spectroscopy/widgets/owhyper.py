@@ -996,25 +996,35 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.vis_img.setCompositionMode(comp_mode)
 
     def set_vector_co(self, pen):
-        self.c.setPen(pen)
+        if hasattr(self, 'c'):
+            self.c.setPen(pen)
 
     def set_vector_scale(self, scale):
-        th = self.v[:,0]
-        v_mag = self.v[:,1]
-        amp = v_mag / max(v_mag) * (scale/100)# TODO, new setting: range
-        wy = self.shifty*2
-        wx = self.shiftx*2
-        y = np.linspace(*self.lsy)[self.yindex[self.valid]]
-        x = np.linspace(*self.lsx)[self.xindex[self.valid]]
-        dispx = amp*wx/2*np.cos(np.radians(th))
-        dispy = amp*wy/2*np.sin(np.radians(th))
-        xcurve = np.empty((dispx.shape[0]*2))
-        ycurve = np.empty((dispy.shape[0]*2))
-        xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
-        ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
-        connect = np.ones((dispx.shape[0]*2))
-        connect[1::2] = 0
-        self.c.setData(x=xcurve, y=ycurve, connect=connect)
+        if self.v is not None:
+            if self.v.shape[1] > 1:
+                th = self.v[:,0]
+                v_mag = self.v[:,1]
+            elif self.v.shape[1] == 1:
+                if self.parent.vector_angle is None:
+                    th = np.zeros(self.v.shape[0])
+                    v_mag = self.v[:,0]
+                elif self.parent.vector_magnitude is None:
+                    th = self.v[:,0]
+                    v_mag = np.ones(self.v.shape[0])
+            amp = v_mag / max(v_mag) * (scale/100)# TODO, new setting: range
+            wy = self.shifty*2
+            wx = self.shiftx*2
+            y = np.linspace(*self.lsy)[self.yindex[self.valid]]
+            x = np.linspace(*self.lsx)[self.xindex[self.valid]]
+            dispx = amp*wx/2*np.cos(np.radians(th))
+            dispy = amp*wy/2*np.sin(np.radians(th))
+            xcurve = np.empty((dispx.shape[0]*2))
+            ycurve = np.empty((dispy.shape[0]*2))
+            xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
+            ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
+            connect = np.ones((dispx.shape[0]*2))
+            connect[1::2] = 0
+            self.c.setData(x=xcurve, y=ycurve, connect=connect)
 
     @staticmethod
     def compute_image(data: Orange.data.Table, attr_x, attr_y,
@@ -1168,7 +1178,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     show_vector_plot = Setting(False)
     vector_angle = ContextSetting(None)
     vector_magnitude = ContextSetting(None)
-    vector_colour_index = Setting(0)
+    vector_colour_index = ContextSetting(0)
     vector_scale = Setting(1)
     vector_opacity = Setting(255)
 
