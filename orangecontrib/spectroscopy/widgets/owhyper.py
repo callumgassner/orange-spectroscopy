@@ -792,6 +792,9 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_values = None
         self.data_imagepixels = None
         self.data_valid_positions = None
+        self.vector_data = None
+        self.xindex = None
+        self.yindex = None
 
         self.plotview = GraphicsView()
         ci = pg.GraphicsLayout()
@@ -972,6 +975,9 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_values = None
         self.data_imagepixels = None
         self.data_valid_positions = None
+        self.vector_data = None
+        self.xindex = None
+        self.yindex = None
 
         self.start(self.compute_image, self.data, self.attr_x, self.attr_y,
                     self.parent.image_values(),
@@ -995,19 +1001,25 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
     def set_visible_image_comp_mode(self, comp_mode: QPainter.CompositionMode):
         self.vis_img.setCompositionMode(comp_mode)
 
-    def set_vector_colour(self, pen):
+    def update_vector_colour(self):
         if hasattr(self, 'c'):
+            pen = self.parent.get_vector_colour()
             self.c.setPen(pen)
 
-    def set_vector_scale(self, scale):
-        if self.v is not None:
-            th = self.v[:,0]
-            v_mag = self.v[:,1]
-            amp = v_mag / max(v_mag) * (scale/100)  # TODO, new setting: range
-            wy = self.shifty*2
-            wx = self.shiftx*2
-            y = np.linspace(*self.lsy)[self.yindex[self.valid]]
-            x = np.linspace(*self.lsx)[self.xindex[self.valid]]
+    def update_vectors(self):
+        v = self.vector_data
+        if v is not None:
+            valid = self.data_valid_positions
+            lsx, lsy = self.lsx, self.lsy
+            xindex, yindex = self.xindex, self.yindex
+            scale = self.parent.vector_scale
+            th = v[:,0]
+            v_mag = v[:,1]
+            amp = v_mag / max(v_mag) * (scale/100)
+            wy = _shift(lsx)*2
+            wx = _shift(lsx)*2
+            y = np.linspace(*lsy)[yindex[valid]]
+            x = np.linspace(*lsx)[xindex[valid]]
             dispx = amp*wx/2*np.cos(np.radians(th))
             dispy = amp*wy/2*np.sin(np.radians(th))
             xcurve = np.empty((dispx.shape[0]*2))
