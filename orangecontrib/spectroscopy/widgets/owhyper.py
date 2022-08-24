@@ -1001,17 +1001,9 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
     def set_vector_scale(self, scale):
         if self.v is not None:
-            if self.v.shape[1] > 1:
-                th = self.v[:,0]
-                v_mag = self.v[:,1]
-            elif self.v.shape[1] == 1:
-                if self.parent.vector_angle is None:
-                    th = np.zeros(self.v.shape[0])
-                    v_mag = self.v[:,0]
-                elif self.parent.vector_magnitude is None:
-                    th = self.v[:,0]
-                    v_mag = np.ones(self.v.shape[0])
-            amp = v_mag / max(v_mag) * (scale/100)# TODO, new setting: range
+            th = self.v[:,0]
+            v_mag = self.v[:,1]
+            amp = v_mag / max(v_mag) * (scale/100)  # TODO, new setting: range
             wy = self.shifty*2
             wx = self.shiftx*2
             y = np.linspace(*self.lsy)[self.yindex[self.valid]]
