@@ -995,7 +995,7 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
     def set_visible_image_comp_mode(self, comp_mode: QPainter.CompositionMode):
         self.vis_img.setCompositionMode(comp_mode)
 
-    def set_vector_co(self, pen):
+    def set_vector_colour(self, pen):
         if hasattr(self, 'c'):
             self.c.setPen(pen)
 
