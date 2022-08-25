@@ -792,7 +792,6 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_values = None
         self.data_imagepixels = None
         self.data_valid_positions = None
-        self.vector_data = None
         self.xindex = None
         self.yindex = None
 
@@ -821,6 +820,10 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.vis_img.setOpts(axisOrder='row-major')
         self.plot.vb.setAspectLocked()
         self.plot.scene().sigMouseMoved.connect(self.plot.vb.mouseMovedEvent)
+
+        self.vector_plot = pg.PlotCurveItem()
+        self.vector_plot.hide()
+        self.plot.addItem(self.vector_plot)
 
         layout = QGridLayout()
         self.plotview.setLayout(layout)
@@ -869,8 +872,6 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
         self.data = None
         self.data_ids = {}
-
-        self.p_markings = []
 
     def init_interface_data(self, data):
         self.init_attr_values(data)
@@ -965,9 +966,6 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.parent.Information.not_shown.clear()
         self.img.clear()
         self.img.setSelection(None)
-        for m in self.p_markings:
-            self.plot.removeItem(m)
-        self.p_markings = []
         self.legend.set_colors(None)
         self.lsx = None
         self.lsy = None
@@ -975,9 +973,9 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_values = None
         self.data_imagepixels = None
         self.data_valid_positions = None
-        self.vector_data = None
         self.xindex = None
         self.yindex = None
+        self.update_vectors()  # clears the vector plot
 
         self.start(self.compute_image, self.data, self.attr_x, self.attr_y,
                     self.parent.image_values(),
@@ -1002,13 +1000,16 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.vis_img.setCompositionMode(comp_mode)
 
     def update_vector_colour(self):
-        if hasattr(self, 'c'):
-            pen = self.parent.get_vector_colour()
-            self.c.setPen(pen)
+        pen = self.parent.get_vector_colour()
+        self.vector_plot.setPen(pen)
 
     def update_vectors(self):
-        v = self.vector_data
-        if v is not None:
+        v = self.parent.get_vector_data()
+        if self.lsx is None:  # image is not shown or is being computed
+            v = None
+        if v is None:
+            self.vector_plot.hide()
+        else:
             valid = self.data_valid_positions
             lsx, lsy = self.lsx, self.lsy
             xindex, yindex = self.xindex, self.yindex
@@ -1028,11 +1029,12 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
             connect = np.ones((dispx.shape[0]*2))
             connect[1::2] = 0
-            self.c.setData(x=xcurve, y=ycurve, connect=connect)
+            self.vector_plot.setData(x=xcurve, y=ycurve, connect=connect)
+            self.vector_plot.show()
 
     @staticmethod
     def compute_image(data: Orange.data.Table, attr_x, attr_y,
-                      vector_values, image_values, image_values_fixed_levels, choose,
+                      image_values, image_values_fixed_levels,
                       state: TaskState):
 
         if data is None or attr_x is None or attr_y is None:
