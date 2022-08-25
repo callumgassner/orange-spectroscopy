@@ -1365,6 +1365,13 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         VisualSettingsDialog(self, self.imageplot.parameter_setter.initial_settings)
 
+        # initialize values so that the combo boxes are not in invalid states
+        if self.vector_opts:
+            # TODO here we could instead set good default values if available
+            self.vector_magnitude = self.vector_angle = None
+        else:
+            self.vector_magnitude = self.vector_angle = None
+
     def setup_visible_image_controls(self):
         self.visbox = gui.widgetBox(self.controlArea, True)
 
