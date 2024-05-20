@@ -14,7 +14,7 @@ class SelectColumnReader(FileFormat, SpectralFileFormat):
     @property
     def sheets(self):
 
-        with open(self.filename, 'r') as dataf:
+        with open(self.filename, 'rt', encoding="utf8") as dataf:
             l = ""
             for l in dataf:
                 if not l.startswith('#'):

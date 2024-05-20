@@ -1,8 +1,8 @@
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QVBoxLayout, QLabel, QPushButton, QApplication, QStyle, QSizePolicy
+from AnyQt.QtCore import Qt
+from AnyQt.QtGui import QColor
+from AnyQt.QtWidgets import QVBoxLayout, QLabel, QPushButton, QApplication, QStyle, QSizePolicy
 
 from Orange.widgets import gui
 from orangecontrib.spectroscopy.data import spectra_mean, getx

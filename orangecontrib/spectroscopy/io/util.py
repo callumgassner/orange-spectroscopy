@@ -52,7 +52,7 @@ def _spectra_from_image(X, features, x_locs, y_locs):
     x_loc = np.tile(np.arange(X.shape[1]), X.shape[0])
     meta_table = _metatable_maplocs(x_locs[x_loc], y_locs[y_loc])
 
-    return features, spectra, meta_table
+    return np.asarray(features), spectra, meta_table
 
 
 def _spectra_from_image_2d(X, wn, x_locs, y_locs):

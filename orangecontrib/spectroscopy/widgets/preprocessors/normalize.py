@@ -1,6 +1,6 @@
 import sys
 
-from PyQt5.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QButtonGroup, QRadioButton
+from AnyQt.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QButtonGroup, QRadioButton
 
 from Orange.data import ContinuousVariable
 from Orange.widgets import gui

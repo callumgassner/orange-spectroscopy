@@ -71,11 +71,11 @@ class OWInterpolate(OWWidget):
         form.setLayout(formlayout)
         ibox.layout().addWidget(form)
 
-        self.xmin_edit = lineEditFloatOrNone(ibox, self, "xmin", callback=self.commit)
+        self.xmin_edit = lineEditFloatOrNone(ibox, self, "xmin", callback=self.commit.deferred)
         formlayout.addRow("Min", self.xmin_edit)
-        self.xmax_edit = lineEditFloatOrNone(ibox, self, "xmax", callback=self.commit)
+        self.xmax_edit = lineEditFloatOrNone(ibox, self, "xmax", callback=self.commit.deferred)
         formlayout.addRow("Max", self.xmax_edit)
-        self.dx_edit = lineEditFloatOrNone(ibox, self, "dx", callback=self.commit)
+        self.dx_edit = lineEditFloatOrNone(ibox, self, "dx", callback=self.commit.deferred)
         formlayout.addRow("Δ", self.dx_edit)
 
         gui.appendRadioButton(rbox, "Reference data")

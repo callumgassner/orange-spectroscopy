@@ -7,6 +7,12 @@ from base64 import b64decode
 import numpy as np
 from PIL import Image
 
+try:
+    import dask
+    from Orange.tests.test_dasktable import temp_dasktable
+except ImportError:
+    dask = None
+
 from AnyQt.QtCore import QPointF, Qt, QRectF
 from AnyQt.QtTest import QSignalSpy
 import Orange
@@ -14,7 +20,7 @@ from Orange.data import DiscreteVariable, Domain, Table
 from Orange.widgets.tests.base import WidgetTest
 
 from orangecontrib.spectroscopy.data import _spectra_from_image, build_spec_table
-from orangecontrib.spectroscopy.preprocess.integrate import IntegrateFeaturePeakSimple
+from orangecontrib.spectroscopy.preprocess.integrate import IntegrateFeaturePeakSimple, Integrate
 from orangecontrib.spectroscopy.widgets import owhyper
 from orangecontrib.spectroscopy.widgets.owhyper import \
     OWHyper
@@ -113,11 +119,19 @@ class TestOWHyper(WidgetTest):
         # dataset without rows
         empty = cls.iris[:0]
         # dataset with large blank regions
-        irisunknown = Interpolate(np.arange(20))(cls.iris)
+        irisunknown = Interpolate(np.arange(20))(cls.iris)[:20]
         # dataset without any attributes, but XY
         whitelight0 = cls.whitelight.transform(
-            Orange.data.Domain([], None, metas=cls.whitelight.domain.metas))
-        cls.strange_data = [None, cls.iris1, iris0, empty, irisunknown, whitelight0]
+            Orange.data.Domain([], None, metas=cls.whitelight.domain.metas))[:100]
+        unknowns = cls.iris[::10].copy()
+        with unknowns.unlocked():
+            unknowns.X[:, :] = float("nan")
+        single_pixel = cls.iris[:50]  # all image coordinates map to one spot
+        unknown_pixel = single_pixel.copy()
+        with unknown_pixel.unlocked():
+            unknown_pixel.Y[:] = float("nan")
+        cls.strange_data = [None, cls.iris1, iris0, empty, irisunknown, whitelight0,
+                            unknowns, single_pixel, unknown_pixel]
 
     def setUp(self):
         self.widget = self.create_widget(OWHyper)  # type: OWHyper
@@ -135,13 +149,33 @@ class TestOWHyper(WidgetTest):
         self.assertEqual(self.widget.rgb_green_value, attr1)
         self.assertEqual(self.widget.rgb_blue_value, attr1)
 
+    def test_integral_lines(self):
+        w = self.widget
+        self.send_signal(OWHyper.Inputs.data, self.iris)
+        icombo = w.controls.integration_method
+        for i in range(icombo.count()):
+            icombo.setCurrentIndex(i)
+            icombo.activated.emit(i)
+            wait_for_image(w)
+            imethod = w.integration_methods[w.integration_method]
+            if imethod == Integrate.PeakAt:
+                correct = [False, False, True, False, False]
+            elif imethod == Integrate.Separate:
+                correct = [True, True, False, True, True]
+            else:
+                correct = [True, True, False, False, False]
+            visible = [a.isVisible() for a in [w.line1, w.line2, w.line3, w.line4, w.line5]]
+            self.assertEqual(visible, correct)
+
     def try_big_selection(self):
         self.widget.imageplot.select_square(QPointF(-100, -100), QPointF(100, 100))
         self.widget.imageplot.make_selection(None)
 
     def test_strange(self):
         for data in self.strange_data:
+            self.widget = self.create_widget(OWHyper)
             self.send_signal("Data", data)
+            wait_for_image(self.widget)
             self.try_big_selection()
 
     def test_context_not_open_invalid(self):
@@ -167,9 +201,11 @@ class TestOWHyper(WidgetTest):
         self.assertIsNone(self.get_output("Selection"), None)
 
     def test_unknown(self):
-        self.send_signal("Data", self.whitelight)
+        self.send_signal("Data", self.whitelight[:10])
+        wait_for_image(self.widget)
         levels = self.widget.imageplot.img.levels
-        self.send_signal("Data", self.whitelight_unknown)
+        self.send_signal("Data", self.whitelight_unknown[:10])
+        wait_for_image(self.widget)
         levelsu = self.widget.imageplot.img.levels
         np.testing.assert_equal(levelsu, levels)
 
@@ -225,11 +261,11 @@ class TestOWHyper(WidgetTest):
         self.send_signal("Data", data)
         wait_for_image(self.widget)
         self.widget.imageplot.select_by_click(QPointF(1, 2))
-        with hold_modifiers(self.widget, Qt.ControlModifier):
+        with hold_modifiers(self.widget, Qt.ShiftModifier):
             self.widget.imageplot.select_by_click(QPointF(2, 2))
         with hold_modifiers(self.widget, Qt.ShiftModifier):
             self.widget.imageplot.select_by_click(QPointF(3, 2))
-        with hold_modifiers(self.widget, Qt.ShiftModifier | Qt.ControlModifier):
+        with hold_modifiers(self.widget, Qt.ControlModifier):
             self.widget.imageplot.select_by_click(QPointF(4, 2))
         out = self.get_output(self.widget.Outputs.annotated_data)
         self.assertEqual(len(out), 20000)  # have a data table at the output
@@ -237,7 +273,8 @@ class TestOWHyper(WidgetTest):
         oldvars = data.domain.variables + data.domain.metas
         group_at = [a for a in newvars if a not in oldvars][0]
         unselected = group_at.to_val("Unselected")
-        out = out[np.flatnonzero(out.transform(Orange.data.Domain([group_at])).X != unselected)]
+        out = out[np.asarray(np.flatnonzero(
+            out.transform(Orange.data.Domain([group_at])).X != unselected))]
         self.assertEqual(len(out), 4)
         np.testing.assert_equal([o["map_x"].value for o in out], [1, 2, 3, 4])
         np.testing.assert_equal([o[group_at].value for o in out], ["G1", "G2", "G3", "G3"])
@@ -266,7 +303,7 @@ class TestOWHyper(WidgetTest):
         self.assertEqual(self.widget.curveplot.feature_color.name, "iris")
 
     def test_set_variable_color(self):
-        data = Orange.data.Table("iris.tab")
+        data = self.iris
         ndom = Orange.data.Domain(data.domain.attributes[:-1], data.domain.class_var,
                                   metas=[data.domain.attributes[-1]])
         data = data.transform(ndom)
@@ -341,7 +378,7 @@ class TestOWHyper(WidgetTest):
             self.assertGreater(os.path.getsize(fname), 1000)
 
     def test_unknown_values_axes(self):
-        data = Orange.data.Table("iris")
+        data = self.iris.copy()
         with data.unlocked():
             data.Y[0] = np.nan
         self.send_signal("Data", data)
@@ -349,12 +386,14 @@ class TestOWHyper(WidgetTest):
         self.assertTrue(self.widget.Information.not_shown.is_shown())
 
     def test_migrate_context_feature_color(self):
-        c = self.widget.settingsHandler.new_context(self.iris.domain,
-                                                    None, self.iris.domain.class_vars)
+        # avoid class_vars in tests, because the setting does not allow them
+        iris = self.iris.transform(
+            Domain(self.iris.domain.attributes, None, self.iris.domain.class_vars))
+        c = self.widget.settingsHandler.new_context(iris.domain, None, iris.domain.metas)
         c.values["curveplot"] = {"feature_color": ("iris", 1)}
         self.widget = self.create_widget(OWHyper,
                                          stored_settings={"context_settings": [c]})
-        self.send_signal("Data", self.iris)
+        self.send_signal("Data", iris)
         self.assertIsInstance(self.widget.curveplot.feature_color, DiscreteVariable)
 
     def test_image_computation(self):
@@ -414,6 +453,48 @@ class TestOWHyper(WidgetTest):
             # first three wavenumbers (features) should be passed to setImage
             target = [data.X[0, :3], data.X[1, :3]], [data.X[2, :3], data.X[3, :3]]
             np.testing.assert_equal(called, target)
+
+    def test_migrate_visual_setttings(self):
+        settings = {"curveplot":
+                        {"label_title": "title",
+                         "label_xaxis": "x",
+                         "label_yaxis": "y"}
+                    }
+        OWHyper.migrate_settings(settings, 6)
+        self.assertEqual(settings["visual_settings"],
+                         {('Annotations', 'Title', 'Title'): 'title',
+                          ('Annotations', 'x-axis title', 'Title'): 'x',
+                          ('Annotations', 'y-axis title', 'Title'): 'y'})
+        settings = {}
+        OWHyper.migrate_settings(settings, 6)
+        self.assertNotIn("visual_settings", settings)
+
+    def test_compat_no_group(self):
+        settings = {}
+        OWHyper.migrate_settings(settings, 6)
+        self.assertEqual(settings, {})
+        self.widget = self.create_widget(OWHyper, stored_settings=settings)
+        self.assertFalse(self.widget.compat_no_group)
+
+        settings = {}
+        OWHyper.migrate_settings(settings, 5)
+        self.assertEqual(settings, {"compat_no_group": True})
+        self.widget = self.create_widget(OWHyper, stored_settings=settings)
+        self.assertTrue(self.widget.compat_no_group)
+
+
+
+@unittest.skipUnless(dask, "installed Orange does not support dask")
+class TestOWHyperWithDask(TestOWHyper):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.iris = temp_dasktable("iris")
+        cls.whitelight = temp_dasktable("whitelight.gsf")
+        cls.whitelight_unknown = temp_dasktable(cls.whitelight_unknown)
+        cls.iris1 = temp_dasktable(cls.iris1)
+        cls.strange_data = [temp_dasktable(d) if d is not None else None
+                            for d in cls.strange_data]
 
 
 class TestVisibleImage(WidgetTest):

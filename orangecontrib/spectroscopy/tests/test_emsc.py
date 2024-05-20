@@ -138,6 +138,59 @@ class TestEMSC(unittest.TestCase):
             fdata.metas,
             [[1.375, 1.375, 3.0, 6.0, 2.0]])
 
+    def disabled_test_eq(self):
+        data = Table.from_numpy(None, [[0, 0.25, 4.5, 4.75, 1.0, 1.25,
+                                        7.5, 7.75, 2.0, 5.25, 5.5, 2.75]])
+        data_ref = Table.from_numpy(None, [[0, 0, 2, 2, 0, 0, 3, 3, 0, 0, 0, 0]])
+        badspec = Table.from_numpy(None, [[0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0]])
+
+        d1 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True)(data)
+        d2 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True)(data)
+        self.assertEqual(d1.domain, d2.domain)
+        self.assertEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = EMSC(reference=Table.from_numpy(None, [[1, 0, 2, 2, 0, 0, 3, 3, 0, 0, 0, 0]]),
+                  badspectra=badspec, order=1, output_model=True)(data)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = EMSC(reference=data_ref[0:1],
+                  badspectra=Table.from_numpy(None, [[1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0]]),
+                  order=1, output_model=True)(data)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = EMSC(reference=data, badspectra=badspec, order=1, output_model=True)(data)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        weight_table = spectra_table([-5e-324, 0.0, 3.0, 3.0000000000000004],
+                                     [[0, 1, 1, 0]])
+        d2 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True,
+                  weights=weight_table)(data)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d3 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True,
+                  weights=weight_table)(data)
+        self.assertEqual(d3.domain, d2.domain)
+        self.assertEqual(hash(d3.domain), hash(d2.domain))
+
+        d2 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True,
+                  weights=SelectionFunction(0, 3, 1))(data)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d3 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True,
+                  weights=SelectionFunction(0, 3, 1))(data)
+        self.assertEqual(d3.domain, d2.domain)
+        self.assertEqual(hash(d3.domain), hash(d2.domain))
+
+        d3 = EMSC(reference=data_ref[0:1], badspectra=badspec, order=1, output_model=True,
+                  weights=SmoothedSelectionFunction(0, 3, 1, 0.5))(data)
+        self.assertNotEqual(d3.domain, d2.domain)
+        self.assertNotEqual(hash(d3.domain), hash(d2.domain))
+
 
 class TestSelectionFuctions(unittest.TestCase):
 

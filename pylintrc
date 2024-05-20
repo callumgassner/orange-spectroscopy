@@ -16,7 +16,7 @@ persistent=yes
 
 # List of plugins (as comma separated values of python modules names) to load,
 # usually to register additional checkers.
-load-plugins=
+load-plugins=pylint.extensions.eq_without_hash
 
 # Use multiple processes to speed up Pylint.
 jobs=0
@@ -28,16 +28,7 @@ unsafe-load-any-extension=no
 # A comma-separated list of package or module names from where C extensions may
 # be loaded. Extensions are loading into the active Python interpreter and may
 # run arbitrary code
-extension-pkg-whitelist=
-
-# Allow optimization of some AST trees. This will activate a peephole AST
-# optimizer, which will apply various small optimizations. For instance, it can
-# be used to obtain the result of joining multiple strings with the addition
-# operator. Joining a lot of strings can lead to a maximum recursion error in
-# Pylint and this flag can prevent that. It has one side effect, the resulting
-# AST will be different than the one from reality.
-optimize-ast=no
-
+extension-pkg-whitelist=Orange.distance._distance,Orange.data._variable,numpy.random.mtrand
 
 [MESSAGES CONTROL]
 
@@ -60,19 +51,12 @@ confidence=
 # no Warning level messages displayed, use"--disable=all --enable=classes
 # --disable=W"
 disable=
-    global-statement,unnecessary-lambda,arguments-differ,unused-argument,
-    no-self-use,fixme,no-name-in-module,no-member,
-    round-builtin,next-method-called,cmp-builtin,filter-builtin-not-iterating,
-    nonzero-method,old-division,input-builtin,intern-builtin,
-    map-builtin-not-iterating,suppressed-message,buffer-builtin,
-    unpacking-in-except,no-absolute-import,range-builtin-not-iterating,
-    coerce-method,zip-builtin-not-iterating,reload-builtin,
-    standarderror-builtin,import-star-module-level,old-octal-literal,
-    metaclass-assignment,reduce-builtin,indexing-exception,
-    parameter-unpacking,long-suffix,cmp-method,using-cmp-argument,
-    useless-suppression,import-error,
-    empty-docstring,missing-docstring,redefined-outer-name,redefined-builtin,
-    attribute-defined-outside-init, no-else-return, len-as-condition, invalid-sequence-index
+    missing-docstring,  # I guess not
+    no-name-in-module, no-member,  # too many false positives from Qt
+    import-error,       # false positives, and we don't expect any true positives
+    too-many-ancestors, # I don't think this is a problem
+    no-else-return,     # else's may actually improve readability
+    duplicate-code      # too strict; we're disciplined and don't do this by mistake
 
 
 [REPORTS]
@@ -81,11 +65,6 @@ disable=
 # (visual studio) and html. You can also give a reporter class, eg
 # mypackage.mymodule.MyReporterClass.
 output-format=text
-
-# Put messages in a separate file for each module / package specified on the
-# command line instead of printing them on stdout. Reports (if any) will be
-# written in a file name "pylint_global.[txt|html]".
-files-output=no
 
 # Tells whether to display a full report or only the messages
 reports=yes
@@ -113,12 +92,6 @@ ignore-long-lines=^\s*(# )?<?https?://\S+>?$
 # Allow the body of an if to be on the same line as the test if there is no
 # else.
 single-line-if-stmt=yes
-
-# List of optional constructs for which whitespace checking is disabled. `dict-
-# separator` is used to allow tabulation in dicts, etc.: {1  : 1,\n222: 2}.
-# `trailing-comma` allows a space between comma and closing bracket: (a, ).
-# `empty-line` allows space-only lines.
-no-space-check=trailing-comma,dict-separator
 
 # Maximum number of lines in a module
 max-module-lines=1000
@@ -170,7 +143,7 @@ ignore-comments=yes
 ignore-docstrings=yes
 
 # Ignore imports when computing similarities.
-ignore-imports=no
+ignore-imports=yes
 
 
 [VARIABLES]
@@ -193,9 +166,6 @@ callbacks=cb_,_cb,on_,_on_
 
 [BASIC]
 
-# List of builtins function names that should not be used, separated by a comma
-bad-functions=print
-
 # Good variable names which should always be accepted, separated by a comma
 good-names=ex,Run,_,a,c,d,e,i,j,k,m,n,o,p,t,u,v,w,x,y,A,X,Y,M
 
@@ -212,53 +182,33 @@ include-naming-hint=yes
 # Regular expression matching correct method names
 # TODO: find a better way to allow long method names in test classes.
 method-rgx=[a-z_][a-zA-Z0-9_]{2,80}$
-# Naming hint for method names
-method-name-hint=[a-z_][a-zA-Z0-9_]{2,30}$
 
 # Regular expression matching correct class names
 class-rgx=[A-Z_][a-zA-Z0-9]{2,30}$
-# Naming hint for class names
-class-name-hint=[A-Z_][a-zA-Z0-9]{2,30}$
 
 # Regular expression matching correct module names
 module-rgx=([a-z_][a-z0-9_]{2,30})$
-# Naming hint for module names
-module-name-hint=([a-z_][a-z0-9_]{2,30})$
 
 # Regular expression matching correct class attribute names
 class-attribute-rgx=[A-Za-z_][A-Za-z0-9_]{2,30}$
-# Naming hint for class attribute names
-class-attribute-name-hint=[A-Za-z_][A-Za-z0-9_]{2,30}$
 
 # Regular expression matching correct constant names
 const-rgx=[A-Za-z_][A-Za-z0-9_]+$
-# Naming hint for constant names
-const-name-hint=[A-Za-z_][A-Za-z0-9_]+$
 
 # Regular expression matching correct function names
 function-rgx=[a-z_][a-zA-Z0-9_]{2,30}$
-# Naming hint for function names
-function-name-hint=[a-z_][a-zA-Z0-9_]{2,30}$
 
 # Regular expression matching correct variable names
 variable-rgx=[a-zA-Z_][a-zA-Z0-9_]{0,30}$
-# Naming hint for variable names
-variable-name-hint=[a-zA-Z_][a-zA-Z0-9_]{0,30}$
 
 # Regular expression matching correct attribute names
 attr-rgx=[a-z_][a-zA-Z0-9_]*$
-# Naming hint for attribute names
-attr-name-hint=[a-z_][a-zA-Z0-9_]{2,30}$
 
 # Regular expression matching correct inline iteration names
 inlinevar-rgx=[A-Za-z_][A-Za-z0-9_]*$
-# Naming hint for inline iteration names
-inlinevar-name-hint=[A-Za-z_][A-Za-z0-9_]*$
 
 # Regular expression matching correct argument names
 argument-rgx=[a-z_][a-zA-Z0-9_]*$
-# Naming hint for argument names
-argument-name-hint=[a-z_][a-zA-Z0-9_]{2,30}$
 
 # Regular expression which should only match function or class names that do
 # not require a docstring.
@@ -279,7 +229,7 @@ max-nested-blocks=5
 
 # Tells whether missing members accessed in mixin class should be ignored. A
 # mixin class is detected if its name ends with "mixin" (case insensitive).
-ignore-mixin-members=yes
+ignored-checks-for-mixins=no-member
 
 # List of module names for which member attributes should not be checked
 # (useful for modules/projects where namespaces are manipulated during runtime
@@ -379,4 +329,7 @@ int-import-graph=
 
 # Exceptions that will emit a warning when being caught. Defaults to
 # "Exception"
-overgeneral-exceptions=Exception
+overgeneral-exceptions=builtins.Exception
+
+[isort]
+known-standard-library=

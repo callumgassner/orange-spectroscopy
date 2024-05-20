@@ -20,11 +20,11 @@ def apply_columns_numpy(array, function, selector=None, chunk_size=10 ** 7, call
 
 
 def values_to_linspace(vals):
-    """Find a near maching linspace for the values given.
+    """Find a near matching linspace for the values given.
     The problem is that some values can be missing and
     that they are inexact. The minumum and maximum values
     are kept as limits."""
-    vals = vals[~np.isnan(vals)]
+    vals = np.asarray(vals[~np.isnan(vals)])
     if len(vals):
         vals = np.unique(vals)  # returns sorted array
         if len(vals) == 1:
@@ -43,11 +43,14 @@ def values_to_linspace(vals):
 
 def location_values(vals, linspace):
     vals = np.asarray(vals)
-    if linspace[2] == 1:  # everything is the same value
+    if linspace is None or linspace[2] == 1:  # everything is the same value
         width = 1
     else:
         width = (linspace[1] - linspace[0]) / (linspace[2] - 1)
-    return (vals - linspace[0]) / width
+    start = 0
+    if linspace is not None:
+        start = linspace[0]
+    return (vals - start) / width
 
 
 def index_values(vals, linspace):

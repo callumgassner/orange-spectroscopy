@@ -32,10 +32,10 @@ def init_bounds_hform(prepro_widget,
         bounds_form.addWidget(titlabel, 1, 0)
 
     left_bound = QFormLayout()
-    left_bound.setFieldGrowthPolicy(0)
+    left_bound.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
     left_bound.addRow("from", from_lim)
     right_bound = QFormLayout()
-    right_bound.setFieldGrowthPolicy(0)
+    right_bound.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
     right_bound.addRow("to", to_lim)
 
     bounds_form.addLayout(left_bound, 2, 0)
@@ -69,7 +69,7 @@ class XASnormalizationEditor(BaseEditorOrange):
 
         self.edge = 0.
         edge_form = QFormLayout()
-        edge_form.setFieldGrowthPolicy(0)
+        edge_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         edge_edit = lineEditFloatRange(self, self, "edge", callback=self.edited.emit)
         edge_form.addRow("Edge", edge_edit)
         dummylabel = QLabel()
@@ -97,7 +97,7 @@ class XASnormalizationEditor(BaseEditorOrange):
 
         self.preedge_deg = 1.
         preedgedeg_form = QFormLayout()
-        preedgedeg_form.setFieldGrowthPolicy(0)
+        preedgedeg_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         preedgedeg_edit = lineEditFloatRange(self, self, "preedge_deg",
                                              callback=self.edited.emit)
         preedgedeg_form.addRow("poly degree", preedgedeg_edit)
@@ -126,7 +126,7 @@ class XASnormalizationEditor(BaseEditorOrange):
 
         self.postedge_deg = 2.
         postedgedeg_form = QFormLayout()
-        postedgedeg_form.setFieldGrowthPolicy(0)
+        postedgedeg_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         postedgedeg_edit = lineEditFloatRange(self, self, "postedge_deg",
                                               callback=self.edited.emit)
         postedgedeg_form.addRow("poly degree", postedgedeg_edit)
@@ -234,7 +234,7 @@ class ExtractEXAFSEditor(BaseEditorOrange):
 
         self.edge = 0.
         edge_form = QFormLayout()
-        edge_form.setFieldGrowthPolicy(0)
+        edge_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         edge_edit = lineEditFloatRange(self, self, "edge", callback=self.edited.emit)
         edge_form.addRow("Edge", edge_edit)
         dummylabel = QLabel()
@@ -276,7 +276,7 @@ class ExtractEXAFSEditor(BaseEditorOrange):
         # ---------------------------
         self.poly_deg = 0
         polydeg_form = QFormLayout()
-        polydeg_form.setFieldGrowthPolicy(0)
+        polydeg_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         polydeg_edit = lineEditFloatRange(self, self, "poly_deg", callback=self.edited.emit)
         titlabel.setText("Polynomial degree:")
         polydeg_form.addRow(titlabel, polydeg_edit)
@@ -288,7 +288,7 @@ class ExtractEXAFSEditor(BaseEditorOrange):
         # ----------------------------
         self.kweight = 0
         kweight_form = QFormLayout()
-        kweight_form.setFieldGrowthPolicy(0)
+        kweight_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         kweight_edit = lineEditFloatRange(self, self, "kweight", callback=self.edited.emit)
         kweight_form.addRow("Kweight (fit)", kweight_edit)
         self.controlArea.layout().addLayout(kweight_form, curr_row, 0, 1, 1)
@@ -296,7 +296,7 @@ class ExtractEXAFSEditor(BaseEditorOrange):
         # ----------------------------
         self.m = 3
         m_form = QFormLayout()
-        m_form.setFieldGrowthPolicy(0)
+        m_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         m_edit = lineEditFloatRange(self, self, "m", callback=self.edited.emit)
         m_edit.setMinimumWidth(10)
         m_form.addRow("Kweight (plot)", m_edit)

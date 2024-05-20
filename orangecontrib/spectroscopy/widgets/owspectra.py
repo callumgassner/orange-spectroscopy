@@ -1,15 +1,22 @@
 import itertools
 import sys
 from collections import defaultdict
-import gc
 import random
+import time
 import warnings
 from xml.sax.saxutils import escape
 
+try:
+    import dask
+    import dask.array as da
+except ImportError:
+    dask = None
+
 from AnyQt.QtWidgets import QWidget, QGraphicsItem, QPushButton, QMenu, \
-    QGridLayout, QAction, QVBoxLayout, QApplication, QWidgetAction, QLabel, \
+    QGridLayout, QAction, QVBoxLayout, QApplication, QWidgetAction, \
     QShortcut, QToolTip, QGraphicsRectItem, QGraphicsTextItem
-from AnyQt.QtGui import QColor, QPixmapCache, QPen, QKeySequence, QFontDatabase
+from AnyQt.QtGui import QColor, QPixmapCache, QPen, QKeySequence, QFontDatabase, \
+    QPalette
 from AnyQt.QtCore import Qt, QRectF, QPointF, QObject
 from AnyQt.QtCore import pyqtSignal
 
@@ -17,8 +24,10 @@ import bottleneck
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.graphicsItems.ViewBox import ViewBox
-
 from pyqtgraph import Point, GraphicsObject
+
+from orangewidget.utils.visual_settings_dlg import VisualSettingsDialog
+
 import Orange.data
 from Orange.data import DiscreteVariable
 from Orange.widgets.widget import OWWidget, Msg, OWComponent, Input
@@ -26,24 +35,24 @@ from Orange.widgets import gui
 from Orange.widgets.settings import \
     Setting, ContextSetting, DomainContextHandler, SettingProvider
 from Orange.widgets.utils.itemmodels import DomainModel
-from Orange.widgets.utils.colorpalette import ColorPaletteGenerator
 from Orange.widgets.utils.plot import \
     SELECT, PANNING, ZOOMING
 from Orange.widgets.utils import saveplot
 from Orange.widgets.visualize.owscatterplotgraph import LegendItem
 from Orange.widgets.utils.concurrent import TaskState, ConcurrentMixin
-from Orange.widgets.visualize.utils.plotutils import HelpEventDelegate
+from Orange.widgets.visualize.utils.plotutils import HelpEventDelegate, PlotWidget
+from Orange.widgets.visualize.utils.customizableplot import CommonParameterSetter
 
-
+from orangecontrib.spectroscopy import dask_client
 from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.utils import apply_columns_numpy
 from orangecontrib.spectroscopy.widgets.line_geometry import \
     distance_curves, intersect_curves_chunked
-from orangecontrib.spectroscopy.widgets.gui import lineEditFloatOrNone, pixel_decimals, \
+from orangecontrib.spectroscopy.widgets.gui import pixel_decimals, \
     VerticalPeakLine, float_to_str_decimals as strdec
 from orangecontrib.spectroscopy.widgets.utils import \
     SelectionGroupMixin, SelectionOutputsMixin
-
+from orangecontrib.spectroscopy.widgets.visual_settings import FloatOrUndefined
 
 SELECT_SQUARE = 123
 SELECT_POLYGON = 124
@@ -71,10 +80,74 @@ COLORBREWER_SET1 = [(228, 26, 28), (55, 126, 184), (77, 175, 74), (152, 78, 163)
 
 def selection_modifiers():
     keys = QApplication.keyboardModifiers()
-    add_to_group = bool(keys & Qt.ControlModifier and keys & Qt.ShiftModifier)
-    add_group = bool(keys & Qt.ControlModifier or keys & Qt.ShiftModifier)
+    add_to_group = bool(keys & Qt.ControlModifier)
+    add_group = bool(keys & Qt.ShiftModifier)
     remove = bool(keys & Qt.AltModifier)
     return add_to_group, add_group, remove
+
+
+class ParameterSetter(CommonParameterSetter):
+
+    VIEW_RANGE_BOX = "View Range"
+
+    def __init__(self, master):
+        super().__init__()
+        self.master = master
+
+    def update_setters(self):
+        self.initial_settings = {
+            self.ANNOT_BOX: {
+                self.TITLE_LABEL: {self.TITLE_LABEL: ("", "")},
+                self.X_AXIS_LABEL: {self.TITLE_LABEL: ("", "")},
+                self.Y_AXIS_LABEL: {self.TITLE_LABEL: ("", "")},
+            },
+            self.LABELS_BOX: {
+                self.FONT_FAMILY_LABEL: self.FONT_FAMILY_SETTING,
+                self.TITLE_LABEL: self.FONT_SETTING,
+                self.AXIS_TITLE_LABEL: self.FONT_SETTING,
+                self.AXIS_TICKS_LABEL: self.FONT_SETTING,
+                self.LEGEND_LABEL: self.FONT_SETTING,
+            },
+            self.VIEW_RANGE_BOX: {
+                "X": {"xMin": (FloatOrUndefined(), None), "xMax": (FloatOrUndefined(), None)},
+                "Y": {"yMin": (FloatOrUndefined(), None), "yMax": (FloatOrUndefined(), None)}
+            }
+        }
+
+        def set_limits(**args):
+            for a, v in args.items():
+                if a == "xMin":
+                    self.viewbox.fixed_range_x[0] = v
+                if a == "xMax":
+                    self.viewbox.fixed_range_x[1] = v
+                if a == "yMin":
+                    self.viewbox.fixed_range_y[0] = v
+                if a == "yMax":
+                    self.viewbox.fixed_range_y[1] = v
+            self.master.update_lock_indicators()
+            self.viewbox.setRange(self.viewbox.viewRect())
+
+        self._setters[self.VIEW_RANGE_BOX] = {"X": set_limits, "Y": set_limits}
+
+    @property
+    def viewbox(self):
+        return self.master.plot.vb
+
+    @property
+    def title_item(self):
+        return self.master.plot.titleLabel
+
+    @property
+    def axis_items(self):
+        return [value["item"] for value in self.master.plot.axes.values()]
+
+    @property
+    def getAxis(self):
+        return self.master.plot.getAxis
+
+    @property
+    def legend_items(self):
+        return self.master.legend.items
 
 
 class MenuFocus(QMenu):  # menu that works well with subwidgets and focusing
@@ -191,8 +264,8 @@ def distancetocurves(array, x, y, xpixel, ypixel, r=5, cache=None):
     yp = array[1][:, xmin:xmax + 2]
 
     # convert to distances in pixels
-    xp = ((xp - x) / xpixel)
-    yp = ((yp - y) / ypixel)
+    xp = (xp - x) / xpixel
+    yp = (yp - y) / ypixel
 
     # add edge point so that distance_curves works if there is just one point
     xp = np.hstack((xp, float("nan")))
@@ -207,32 +280,34 @@ class InterruptException(Exception):
 
 class ShowAverage(QObject, ConcurrentMixin):
 
-    average_shown = pyqtSignal()
+    shown = pyqtSignal()
 
     def __init__(self, master):
         super().__init__(parent=master)
         ConcurrentMixin.__init__(self)
         self.master = master
 
-    def show_average(self):
+    def show(self):
         master = self.master
         master.clear_graph()  # calls cancel
         master.view_average_menu.setChecked(True)
         master.set_pen_colors()
         master.viewtype = AVERAGE
         if not master.data:
-            self.average_shown.emit()
+            self.shown.emit()
         else:
             color_var = master.feature_color
             self.start(self.compute_averages, master.data, color_var, master.subset_indices,
-                       master.selection_group, master.data_xsind, master.selection_type)
+                       master.selection_group, master.selection_type)
 
     @staticmethod
     def compute_averages(data: Orange.data.Table, color_var, subset_indices,
-                         selection_group, data_xsind, selection_type, state: TaskState):
+                         selection_group, selection_type, state: TaskState):
 
         def progress_interrupt(i: float):
             if state.is_interruption_requested():
+                if future:
+                    future.cancel()
                 raise InterruptException
 
         def _split_by_color_value(data, color_var):
@@ -253,7 +328,12 @@ class ShowAverage(QObject, ConcurrentMixin):
 
         results = []
 
+        future = None
+
+        is_dask = dask and isinstance(data.X, dask.array.Array)
+
         dsplit = _split_by_color_value(data, color_var)
+        compute_dask = []
         for colorv, indices in dsplit.items():
             for part in [None, "subset", "selection"]:
                 progress_interrupt(0)
@@ -264,17 +344,34 @@ class ShowAverage(QObject, ConcurrentMixin):
                 elif part == "subset":
                     part_selection = indices & subset_indices
                 if np.any(part_selection):
-                    std = apply_columns_numpy(data.X,
-                                              lambda x: bottleneck.nanstd(x, axis=0),
-                                              part_selection,
-                                              callback=progress_interrupt)
-                    mean = apply_columns_numpy(data.X,
-                                               lambda x: bottleneck.nanmean(x, axis=0),
-                                               part_selection,
-                                               callback=progress_interrupt)
-                    std = std[data_xsind]
-                    mean = mean[data_xsind]
-                    results.append((colorv, part, mean, std, part_selection))
+                    if is_dask:
+                        subset = data.X[part_selection]
+                        compute_dask.extend([da.nanstd(subset, axis=0),
+                                             da.nanmean(subset, axis=0)])
+                        std, mean = None, None
+                    else:
+                        std = apply_columns_numpy(data.X,
+                                                  lambda x: bottleneck.nanstd(x, axis=0),
+                                                  part_selection,
+                                                  callback=progress_interrupt)
+                        mean = apply_columns_numpy(data.X,
+                                                   lambda x: bottleneck.nanmean(x, axis=0),
+                                                   part_selection,
+                                                   callback=progress_interrupt)
+                    results.append([colorv, part, mean, std, part_selection])
+
+        if is_dask:
+            future = dask_client.compute(dask.array.vstack(compute_dask))
+            while not future.done():
+                progress_interrupt(0)
+                time.sleep(0.1)
+            if future.cancelled():
+                return
+            computed = future.result()
+            for i, lr in enumerate(results):
+                lr[2] = computed[i*2]
+                lr[3] = computed[i*2+1]
+
         progress_interrupt(0)
         return results
 
@@ -287,6 +384,8 @@ class ShowAverage(QObject, ConcurrentMixin):
         x = master.data_x
 
         for colorv, part, mean, std, part_selection in res:
+            std = std[master.data_xsind]
+            mean = mean[master.data_xsind]
             if part is None:
                 pen = master.pen_normal if np.any(master.subset_indices) else master.pen_subset
             elif part == "selection" and master.selection_type:
@@ -305,16 +404,106 @@ class ShowAverage(QObject, ConcurrentMixin):
         master.curves_cont.update()
         master.plot.vb.set_mode_panning()
 
-        self.average_shown.emit()
+        self.shown.emit()
 
     def on_partial_result(self, result):
         pass
 
-    def on_exception(self, ex: Exception):
-        if isinstance(ex, InterruptException):
-            return
 
-        raise ex
+class ShowIndividual(QObject, ConcurrentMixin):
+
+    shown = pyqtSignal()
+
+    def __init__(self, master):
+        super().__init__(parent=master)
+        ConcurrentMixin.__init__(self)
+        self.master = master
+
+    def show(self):
+        master = self.master
+        master.clear_graph()  # calls cancel
+        master.view_average_menu.setChecked(False)
+        master.set_pen_colors()
+        master.viewtype = INDIVIDUAL
+        if not master.data:
+            return
+        sampled_indices = master._compute_sample(master.data.X)
+        self.start(self.compute_curves, master.data_x, master.data.X,
+                   sampled_indices)
+
+    @staticmethod
+    def compute_curves(x, ys, sampled_indices, state: TaskState):
+        is_dask = dask and isinstance(ys, dask.array.Array)
+
+        def progress_interrupt(i: float):
+            if state.is_interruption_requested():
+                if future:
+                    future.cancel()
+                raise InterruptException
+
+        future = None
+
+        progress_interrupt(0)
+        ys = ys[sampled_indices]
+        if is_dask:
+            future = dask_client.compute(ys)
+            while not future.done():
+                progress_interrupt(0)
+                time.sleep(0.1)
+            if future.cancelled():
+                return
+            ys = future.result()
+        ys[np.isinf(ys)] = np.nan  # remove infs that could ruin display
+
+        progress_interrupt(0)
+        return x, ys, sampled_indices
+
+    def on_done(self, res):
+        x, ys, sampled_indices = res
+
+        master = self.master
+        ys = ys[:, master.data_xsind]
+
+        if master.waterfall:
+            waterfall_constant = 0.1
+            miny = bottleneck.nanmin(ys)
+            maxy = bottleneck.nanmax(ys)
+            space = (maxy - miny) * waterfall_constant
+            mul = (np.arange(len(ys))*space + 1).reshape(-1, 1)
+            ys = ys * mul
+
+        # shuffle the data before drawing because classes often appear sequentially
+        # and the last class would then seem the most prevalent if colored
+        indices = list(range(len(sampled_indices)))
+        random.Random(master.sample_seed).shuffle(indices)
+        sampled_indices = [sampled_indices[i] for i in indices]
+        master.sampled_indices = sampled_indices
+        master.sampled_indices_inverse = {s: i for i, s in enumerate(master.sampled_indices)}
+        master.new_sampling.emit(len(master.sampled_indices))
+        ys = ys[indices]  # ys was already subsampled
+
+        master.curves.append((x, ys))
+
+        # add curves efficiently
+        for y in ys:
+            master.add_curve(x, y, ignore_bounds=True)
+
+        if x.size and ys.size:
+            bounding_rect = QGraphicsRectItem(QRectF(
+                QPointF(bottleneck.nanmin(x), bottleneck.nanmin(ys)),
+                QPointF(bottleneck.nanmax(x), bottleneck.nanmax(ys))))
+            bounding_rect.setPen(QPen(Qt.NoPen))  # prevents border of 1
+            master.curves_cont.add_bounds(bounding_rect)
+
+        master.curves_plotted.append((x, ys))
+        master.set_curve_pens()
+        master.curves_cont.update()
+        master.plot.vb.set_mode_panning()
+
+        self.shown.emit()
+
+    def on_partial_result(self, result):
+        pass
 
 
 class InteractiveViewBox(ViewBox):
@@ -325,7 +514,7 @@ class InteractiveViewBox(ViewBox):
         self.zoomstartpoint = None
         self.current_selection = None
         self.action = PANNING
-        self.y_padding = 0.02
+        self.y_padding = 0
         self.x_padding = 0
 
         # line for marking selection
@@ -348,6 +537,9 @@ class InteractiveViewBox(ViewBox):
         self.sigRangeChanged.connect(self.resized)
         self.sigResized.connect(self.resized)
 
+        self.fixed_range_x = [None, None]
+        self.fixed_range_y = [None, None]
+
         self.tiptexts = None
 
     def resized(self):
@@ -363,8 +555,13 @@ class InteractiveViewBox(ViewBox):
     def update_selection_tooltip(self, modifiers=Qt.NoModifier):
         if not self.tiptexts:
             self._create_select_tooltip()
-        modifiers &= Qt.ShiftModifier + Qt.ControlModifier + Qt.AltModifier
-        text = self.tiptexts.get(int(modifiers), self.tiptexts[0])
+        text = self.tiptexts[Qt.NoModifier]
+        for mod in [Qt.ControlModifier,
+                    Qt.ShiftModifier,
+                    Qt.AltModifier]:
+            if modifiers & mod:
+                text = self.tiptexts.get(mod)
+                break
         self.tip_textitem.setHtml(text)
         if self.action in [SELECT, SELECT_SQUARE, SELECT_POLYGON]:
             self.scene().select_tooltip.show()
@@ -374,27 +571,33 @@ class InteractiveViewBox(ViewBox):
     def _create_select_tooltip(self):
         scene = self.scene()
         tip_parts = [
-            (Qt.ShiftModifier, "Shift: Add group"),
-            (Qt.ShiftModifier + Qt.ControlModifier,
-             "Shift-{}: Append to group".
+            (Qt.ControlModifier,
+             "{}: Append to group".
              format("Cmd" if sys.platform == "darwin" else "Ctrl")),
+            (Qt.ShiftModifier, "Shift: Add group"),
             (Qt.AltModifier, "Alt: Remove")
         ]
-        all_parts = ", ".join(part for _, part in tip_parts)
+        all_parts = "<center>" + \
+                    ", ".join(part for _, part in tip_parts) + \
+                    "</center>"
         self.tiptexts = {
-            int(modifier): all_parts.replace(part, "<b>{}</b>".format(part))
+            modifier: all_parts.replace(part, "<b>{}</b>".format(part))
             for modifier, part in tip_parts
         }
-        self.tiptexts[0] = all_parts
-        self.tip_textitem = text = QGraphicsTextItem()
+        self.tiptexts[Qt.NoModifier] = all_parts
 
+        self.tip_textitem = text = QGraphicsTextItem()
         # Set to the longest text
-        text.setHtml(self.tiptexts[Qt.ShiftModifier + Qt.ControlModifier])
+        text.setHtml(self.tiptexts[Qt.ControlModifier])
         text.setPos(4, 2)
         r = text.boundingRect()
+        text.setTextWidth(r.width())
         rect = QGraphicsRectItem(0, 0, r.width() + 8, r.height() + 4)
-        rect.setBrush(QColor(224, 224, 224, 212))
+        color = self.graph.palette().color(QPalette.Disabled, QPalette.Window)
+        color.setAlpha(212)
+        rect.setBrush(color)
         rect.setPen(QPen(Qt.NoPen))
+
         scene.select_tooltip = scene.createItemGroup([rect, text])
         scene.select_tooltip.hide()
         self.position_tooltip()
@@ -419,7 +622,8 @@ class InteractiveViewBox(ViewBox):
             ev.ignore()
             super().mouseDragEvent(ev, axis=axis)
         elif self.action in [SELECT, SELECT_SQUARE, SELECT_POLYGON] \
-                and ev.button() == Qt.LeftButton and self.graph.selection_type:
+                and ev.button() == Qt.LeftButton \
+                and hasattr(self.graph, "selection_type") and self.graph.selection_type:
             pos = self.childGroup.mapFromParent(ev.pos())
             start = self.childGroup.mapFromParent(ev.buttonDownPos())
             if self.current_selection is None:
@@ -499,7 +703,8 @@ class InteractiveViewBox(ViewBox):
             ev.accept()
             self.autoRange()
         if self.action != ZOOMING and self.action not in [SELECT, SELECT_SQUARE, SELECT_POLYGON] \
-                and ev.button() == Qt.LeftButton and self.graph.selection_type:
+                and ev.button() == Qt.LeftButton and \
+                hasattr(self.graph, "selection_type") and self.graph.selection_type:
             pos = self.childGroup.mapFromParent(ev.pos())
             self.graph.select_by_click(pos)
             ev.accept()
@@ -565,6 +770,46 @@ class InteractiveViewBox(ViewBox):
         self.pad_current_view_y()
         self.pad_current_view_x()
 
+    def is_view_locked(self):
+        return not all(a is None for a in self.fixed_range_x + self.fixed_range_y)
+
+    def setRange(self, rect=None, xRange=None, yRange=None, **kwargs):
+        """ Always respect limitations in fixed_range_x and _y. """
+
+        if not self.is_view_locked():
+            super().setRange(rect=rect, xRange=xRange, yRange=yRange, **kwargs)
+            return
+
+        # if any limit is defined disregard padding
+        kwargs["padding"] = 0
+
+        if rect is not None:
+            rect = QRectF(rect)
+            if self.fixed_range_x[0] is not None:
+                rect.setLeft(self.fixed_range_x[0])
+            if self.fixed_range_x[1] is not None:
+                rect.setRight(self.fixed_range_x[1])
+            if self.fixed_range_y[0] is not None:
+                rect.setTop(self.fixed_range_y[0])
+            if self.fixed_range_y[1] is not None:
+                rect.setBottom(self.fixed_range_y[1])
+
+        if xRange is not None:
+            xRange = list(xRange)
+            if self.fixed_range_x[0] is not None:
+                xRange[0] = self.fixed_range_x[0]
+            if self.fixed_range_x[1] is not None:
+                xRange[1] = self.fixed_range_x[1]
+
+        if yRange is not None:
+            yRange = list(yRange)
+            if self.fixed_range_y[0] is not None:
+                yRange[0] = self.fixed_range_y[0]
+            if self.fixed_range_y[1] is not None:
+                yRange[1] = self.fixed_range_y[1]
+
+        super().setRange(rect=rect, xRange=xRange, yRange=yRange, **kwargs)
+
     def cancel_zoom(self):
         self.setMouseMode(self.PanMode)
         self.rbScaleBox.hide()
@@ -617,6 +862,10 @@ class InteractiveViewBox(ViewBox):
 
 class InteractiveViewBoxC(InteractiveViewBox):
 
+    def __init__(self, graph):
+        super().__init__(graph)
+        self.y_padding = 0.02
+
     def wheelEvent(self, ev, axis=None):
         # separate axis handling with modifier keys
         if axis is None:
@@ -640,24 +889,21 @@ class NoSuchCurve(ValueError):
 
 
 class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
+
     sample_seed = Setting(0, schema_only=True)
-    label_title = Setting("")
-    label_xaxis = Setting("")
-    label_yaxis = Setting("")
-    range_x1 = Setting(None)
-    range_x2 = Setting(None)
-    range_y1 = Setting(None)
-    range_y2 = Setting(None)
     peak_labels_saved = Setting([], schema_only=True)
-    feature_color = ContextSetting(None)
+    feature_color = ContextSetting(None, exclude_attributes=True)
     color_individual = Setting(False)  # color individual curves (in a cycle) if no feature_color
     invertX = Setting(False)
     viewtype = Setting(INDIVIDUAL)
+    waterfall = Setting(False)
     show_grid = Setting(False)
 
     selection_changed = pyqtSignal()
     new_sampling = pyqtSignal(object)
     highlight_changed = pyqtSignal()
+    locked_axes_changed = pyqtSignal(bool)
+    graph_shown = pyqtSignal()
 
     def __init__(self, parent: OWWidget, select=SELECTNONE):
         QWidget.__init__(self)
@@ -665,7 +911,12 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         SelectionGroupMixin.__init__(self)
 
         self.show_average_thread = ShowAverage(self)
-        self.show_average_thread.average_shown.connect(self.rescale)
+        self.show_average_thread.shown.connect(self.rescale)
+        self.show_average_thread.shown.connect(self.graph_shown.emit)
+
+        self.show_individual_thread = ShowIndividual(self)
+        self.show_individual_thread.shown.connect(self.rescale)
+        self.show_individual_thread.shown.connect(self.graph_shown.emit)
 
         self.parent = parent
 
@@ -676,7 +927,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.subset = None  # current subset input, an array of indices
         self.subset_indices = None  # boolean index array with indices in self.data
 
-        self.plotview = pg.PlotWidget(background="w", viewBox=InteractiveViewBoxC(self))
+        self.plotview = PlotWidget(viewBox=InteractiveViewBoxC(self))
         self.plot = self.plotview.getPlotItem()
         self.plot.hideButtons()  # hide the autorange button
         self.plot.setDownsampling(auto=True, mode="peak")
@@ -787,6 +1038,13 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.view_average_menu.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         actions.append(self.view_average_menu)
 
+        self.view_waterfall_menu = QAction(
+            "Waterfall plot", self, shortcut=Qt.Key_W, checkable=True,
+            triggered=lambda x: self.waterfall_changed()
+        )
+        self.view_waterfall_menu.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        actions.append(self.view_waterfall_menu)
+
         self.show_grid_a = QAction(
             "Show grid", self, shortcut=Qt.Key_G, checkable=True,
             triggered=self.grid_changed
@@ -822,29 +1080,6 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             save_graph.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             actions.append(save_graph)
 
-        range_menu = MenuFocus("Define view range", self)
-        range_action = QWidgetAction(self)
-        layout = QGridLayout()
-        range_box = gui.widgetBox(self, margin=5, orientation=layout)
-        range_box.setFocusPolicy(Qt.TabFocus)
-        self.range_e_x1 = lineEditFloatOrNone(None, self, "range_x1")
-        range_box.setFocusProxy(self.range_e_x1)
-        self.range_e_x2 = lineEditFloatOrNone(None, self, "range_x2")
-        layout.addWidget(QLabel("X"), 0, 0, Qt.AlignRight)
-        layout.addWidget(self.range_e_x1, 0, 1)
-        layout.addWidget(QLabel("-"), 0, 2)
-        layout.addWidget(self.range_e_x2, 0, 3)
-        self.range_e_y1 = lineEditFloatOrNone(None, self, "range_y1")
-        self.range_e_y2 = lineEditFloatOrNone(None, self, "range_y2")
-        layout.addWidget(QLabel("Y"), 1, 0, Qt.AlignRight)
-        layout.addWidget(self.range_e_y1, 1, 1)
-        layout.addWidget(QLabel("-"), 1, 2)
-        layout.addWidget(self.range_e_y2, 1, 3)
-        b = gui.button(None, self, "Apply", callback=self.set_limits)
-        layout.addWidget(b, 2, 3, Qt.AlignRight)
-        range_action.setDefaultWidget(range_box)
-        range_menu.addAction(range_action)
-
         layout = QGridLayout()
         self.plotview.setLayout(layout)
         self.button = QPushButton("Menu", self.plotview)
@@ -855,14 +1090,16 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         view_menu = MenuFocus(self)
         self.button.setMenu(view_menu)
         view_menu.addActions(actions)
-        view_menu.addMenu(range_menu)
         self.addActions(actions)
+        for a in actions:
+            a.setShortcutVisibleInContextMenu(True)
 
         self.color_individual_menu = QAction(
             "Color individual curves", self, shortcut=Qt.Key_I, checkable=True,
             triggered=lambda x: self.color_individual_changed()
         )
         self.color_individual_menu.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.color_individual_menu.setShortcutVisibleInContextMenu(True)
         view_menu.addAction(self.color_individual_menu)
         self.addAction(self.color_individual_menu)
 
@@ -882,25 +1119,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
         cycle_colors = QShortcut(Qt.Key_C, self, self.cycle_color_attr, context=Qt.WidgetWithChildrenShortcut)
 
-        labels_action = QWidgetAction(self)
-        layout = QGridLayout()
-        labels_box = gui.widgetBox(self, margin=0, orientation=layout)
-        t = gui.lineEdit(None, self, "label_title", label="Title:",
-                         callback=self.labels_changed, callbackOnType=self.labels_changed)
-        layout.addWidget(QLabel("Title:"), 0, 0, Qt.AlignRight)
-        layout.addWidget(t, 0, 1)
-        t = gui.lineEdit(None, self, "label_xaxis", label="X-axis:",
-                         callback=self.labels_changed, callbackOnType=self.labels_changed)
-        layout.addWidget(QLabel("X-axis:"), 1, 0, Qt.AlignRight)
-        layout.addWidget(t, 1, 1)
-        t = gui.lineEdit(None, self, "label_yaxis", label="Y-axis:",
-                         callback=self.labels_changed, callbackOnType=self.labels_changed)
-        layout.addWidget(QLabel("Y-axis:"), 2, 0, Qt.AlignRight)
-        layout.addWidget(t, 2, 1)
-        labels_action.setDefaultWidget(labels_box)
-        view_menu.addAction(labels_action)
-        self.labels_changed()  # apply saved labels
-
+        self.waterfall_apply()
         self.grid_apply()
         self.invertX_apply()
         self.color_individual_apply()
@@ -911,6 +1130,11 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
         self.legend = self._create_legend()
         self.viewhelpers_show()
+
+        self.parameter_setter = ParameterSetter(self)
+
+    def update_lock_indicators(self):
+        self.locked_axes_changed.emit(self.plot.vb.is_view_locked())
 
     def _update_connected_views(self):
         for w in self.connected_views:
@@ -928,7 +1152,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.feature_color = self.feature_color_model[0] if self.feature_color_model else None
 
     def line_select_start(self):
-        if self.viewtype == INDIVIDUAL:
+        if self.viewtype == INDIVIDUAL and self.waterfall is False:
             self.plot.vb.set_mode_select()
 
     def help_event(self, ev):
@@ -938,7 +1162,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
                 index = self.sampled_indices[self.highlighted]
                 variables = self.data.domain.metas + self.data.domain.class_vars
                 text += "".join(
-                    '{} = {}\n'.format(attr.name, self.data[index][attr])
+                    '{} = {}\n'.format(attr.name, self.data[index, attr])
                     for attr in variables)
             elif self.viewtype == AVERAGE:
                 c = self.multiple_curves_info[self.highlighted]
@@ -976,26 +1200,6 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         next = (currentind + 1) % len(self.feature_color_model)
         self.feature_color = elements[next]
         self.update_view()
-
-    def set_limits(self):
-        vr = self.plot.vb.viewRect()
-        x1 = self.range_x1 if self.range_x1 is not None else vr.left()
-        x2 = self.range_x2 if self.range_x2 is not None else vr.right()
-        y1 = self.range_y1 if self.range_y1 is not None else vr.top()
-        y2 = self.range_y2 if self.range_y2 is not None else vr.bottom()
-        self.plot.vb.setXRange(x1, x2)
-        self.plot.vb.setYRange(y1, y2)
-
-    def labels_changed(self):
-        self.plot.setTitle(self.label_title)
-        if not self.label_title:
-            self.plot.setTitle(None)
-        self.plot.setLabels(bottom=self.label_xaxis)
-        self.plot.showLabel("bottom", bool(self.label_xaxis))
-        self.plot.getAxis("bottom").resizeEvent()  # align text
-        self.plot.setLabels(left=self.label_yaxis)
-        self.plot.showLabel("left", bool(self.label_yaxis))
-        self.plot.getAxis("left").resizeEvent()  # align text
 
     def grid_changed(self):
         self.show_grid = not self.show_grid
@@ -1062,6 +1266,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
     def clear_graph(self):
         self.show_average_thread.cancel()
+        self.show_individual_thread.cancel()
         self.highlighted = None
         # reset caching. if not, it is not cleared when view changing when zoomed
         self.curves_cont.setCacheMode(QGraphicsItem.NoCache)
@@ -1085,7 +1290,6 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
         self.sampled_indices = []
         self.sampled_indices_inverse = {}
-        self.sampling = None
         self.new_sampling.emit(None)
 
         for m in self.markings:
@@ -1106,11 +1310,6 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             self.label.setPos(vr.bottomLeft())
         else:
             self.label.setPos(vr.bottomRight())
-        xd, yd = self.important_decimals
-        self.range_e_x1.setPlaceholderText(strdec(vr.left(), xd))
-        self.range_e_x2.setPlaceholderText(strdec(vr.right(), xd))
-        self.range_e_y1.setPlaceholderText(strdec(vr.top(), yd))
-        self.range_e_y2.setPlaceholderText(strdec(vr.bottom(), yd))
 
     def make_selection(self, data_indices):
         add_to_group, add_group, remove = selection_modifiers()
@@ -1123,6 +1322,8 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
         old_sel_ci = current_selection()
 
+        changed = False
+
         if add_to_group:  # both keys - need to test it before add_group
             selnum = np.max(self.selection_group)
         elif add_group:
@@ -1132,15 +1333,20 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         else:
             # remove the current selection
             redraw_curve_indices.update(old_sel_ci)
-            self.selection_group *= 0  # remove
+            if np.any(self.selection_group):
+                self.selection_group *= 0  # remove
+                changed = True
             selnum = 1
         # add new
         if data_indices is not None:
             self.selection_group[data_indices] = selnum
             redraw_curve_indices.update(
                 icurve for idata, icurve in invd.items() if idata in data_indices_set)
+            changed = True
 
         fixes = self.make_selection_valid()
+        if fixes:
+            changed = True
         redraw_curve_indices.update(
             icurve for idata, icurve in invd.items() if idata in fixes)
 
@@ -1152,7 +1358,8 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             redraw_curve_indices.update(old_sel_ci)
 
         self.set_curve_pens(redraw_curve_indices)
-        self.selection_changed_confirm()
+        if changed:
+            self.selection_changed_confirm()
 
     def make_selection_valid(self):
         """ Make the selection valid and return the changed positions. """
@@ -1324,8 +1531,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             self.plot.scene().removeItem(v)
         self.connected_views = []
 
-    def add_curves(self, x, ys, addc=True):
-        """ Add multiple curves with the same x domain. """
+    def _compute_sample(self, ys):
         if len(ys) > MAX_INSTANCES_DRAWN:
             sample_selection = \
                 random.Random(self.sample_seed).sample(range(len(ys)), MAX_INSTANCES_DRAWN)
@@ -1336,30 +1542,11 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             subset_additional = MAX_INSTANCES_DRAWN - (len(subset) - len(subset_to_show))
             if len(subset_to_show) > subset_additional:
                 subset_to_show = \
-                    random.Random(self.sample_seed).sample(subset_to_show, subset_additional)
-            self.sampled_indices = sorted(sample_selection + list(subset_to_show))
-            self.sampling = True
+                    random.Random(self.sample_seed).sample(sorted(subset_to_show), subset_additional)
+            sampled_indices = sorted(sample_selection + list(subset_to_show))
         else:
-            self.sampled_indices = list(range(len(ys)))
-        random.Random(self.sample_seed).shuffle(self.sampled_indices)  # for sequential classes#
-        self.sampled_indices_inverse = {s: i for i, s in enumerate(self.sampled_indices)}
-        ys = self.data.X[self.sampled_indices][:, self.data_xsind]
-        ys[np.isinf(ys)] = np.nan  # remove infs that could ruin display
-        self.new_sampling.emit(len(self.sampled_indices))
-        self.curves.append((x, ys))
-
-        # add curves efficiently
-        for y in ys:
-            self.add_curve(x, y, ignore_bounds=True)
-
-        if x.size and ys.size:
-            bounding_rect = QGraphicsRectItem(QRectF(
-                QPointF(bottleneck.nanmin(x), bottleneck.nanmin(ys)),
-                QPointF(bottleneck.nanmax(x), bottleneck.nanmax(ys))))
-            bounding_rect.setPen(QPen(Qt.NoPen))  # prevents border of 1
-            self.curves_cont.add_bounds(bounding_rect)
-
-        self.curves_plotted.append((x, ys))
+            sampled_indices = list(range(len(ys)))
+        return sampled_indices
 
     def add_curve(self, x, y, pen=None, ignore_bounds=False):
         c = FinitePlotCurveItem(x=x, y=y, pen=pen if pen else self.pen_normal[None])
@@ -1402,9 +1589,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.legend.clear()
         palette, legend = False, False
         if color_var is not None:
-            colors = color_var.colors
-            discrete_palette = ColorPaletteGenerator(
-                number_of_colors=len(colors), rgb_colors=colors)
+            discrete_palette = color_var.palette
             palette = [(v, discrete_palette[color_var.to_val(v)]) for v in color_var.values]
             legend = True
         elif self.color_individual:
@@ -1423,16 +1608,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
         self.legend.setVisible(bool(self.legend.items))
 
     def show_individual(self):
-        self.clear_graph()
-        self.view_average_menu.setChecked(False)
-        self.set_pen_colors()
-        self.viewtype = INDIVIDUAL
-        if not self.data:
-            return
-        self.add_curves(self.data_x, self.data.X)
-        self.set_curve_pens()
-        self.curves_cont.update()
-        self.plot.vb.set_mode_panning()
+        self.show_individual_thread.show()
 
     def resample_curves(self, seed):
         self.sample_seed = seed
@@ -1468,8 +1644,16 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
             self.viewtype = AVERAGE
         self.update_view()
 
+    def waterfall_changed(self):
+        self.waterfall = not self.waterfall
+        self.waterfall_apply()
+        self.update_view()
+
+    def waterfall_apply(self):
+        self.view_waterfall_menu.setChecked(self.waterfall)
+
     def show_average(self):
-        self.show_average_thread.show_average()
+        self.show_average_thread.show()
 
     def update_view(self):
         if self.viewtype == INDIVIDUAL:
@@ -1553,6 +1737,7 @@ class CurvePlot(QWidget, OWComponent, SelectionGroupMixin):
 
     def shutdown(self):
         self.show_average_thread.shutdown()
+        self.show_individual_thread.shutdown()
 
     @classmethod
     def migrate_settings_sub(cls, settings, version):
@@ -1590,15 +1775,17 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
 
     want_control_area = False
 
-    settings_version = 4
+    settings_version = 5
     settingsHandler = DomainContextHandler()
 
     curveplot = SettingProvider(CurvePlot)
+    visual_settings = Setting({}, schema_only=True)
 
     graph_name = "curveplot.plotview"  # need to be defined for the save button to be shown
 
     class Information(SelectionOutputsMixin.Information):
         showing_sample = Msg("Showing {} of {} curves.")
+        view_locked = Msg("Axes are locked in the visual settings dialog.")
 
     class Warning(OWWidget.Warning):
         no_x = Msg("No continuous features in input data.")
@@ -1610,8 +1797,11 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
         self.curveplot = CurvePlot(self, select=SELECTMANY)
         self.curveplot.selection_changed.connect(self.selection_changed)
         self.curveplot.new_sampling.connect(self._showing_sample_info)
+        self.curveplot.locked_axes_changed.connect(
+            lambda locked: self.Information.view_locked(shown=locked))
         self.mainArea.layout().addWidget(self.curveplot)
         self.resize(900, 700)
+        VisualSettingsDialog(self, self.curveplot.parameter_setter.initial_settings)
 
     @Inputs.data
     def set_data(self, data):
@@ -1627,6 +1817,10 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
     @Inputs.data_subset
     def set_subset(self, data):
         self.curveplot.set_data_subset(data.ids if data else None, auto_update=False)
+
+    def set_visual_settings(self, key, value):
+        self.curveplot.parameter_setter.set_parameter(key, value)
+        self.visual_settings[key] = value
 
     def handleNewSignals(self):
         self.curveplot.update_view()
@@ -1653,11 +1847,29 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
         super().onDeleteWidget()
 
     @classmethod
+    def migrate_to_visual_settings(cls, settings):
+        if "curveplot" in settings:
+            cs = settings["curveplot"]
+            translate = {'label_title': ('Annotations', 'Title', 'Title'),
+                         'label_xaxis': ('Annotations', 'x-axis title', 'Title'),
+                         'label_yaxis': ('Annotations', 'y-axis title', 'Title')}
+
+            for from_, to_ in translate.items():
+                if cs.get(from_):
+                    if "visual_settings" not in settings:
+                        settings["visual_settings"] = {}
+                    settings["visual_settings"][to_] = cs.get(from_)
+
+    @classmethod
     def migrate_settings(cls, settings, version):
         if "curveplot" in settings:
             CurvePlot.migrate_settings_sub(settings["curveplot"], version)
+
         if version < 3:
             settings["compat_no_group"] = True
+
+        if version < 5:
+            cls.migrate_to_visual_settings(settings)
 
     @classmethod
     def migrate_context(cls, context, version):
@@ -1665,27 +1877,8 @@ class OWSpectra(OWWidget, SelectionOutputsMixin):
             CurvePlot.migrate_context_sub_feature_color(context.values["curveplot"], version)
 
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv
-    argv = list(argv)
-    app = QApplication(argv)
-    w = OWSpectra()
-    w.show()
-    from orangecontrib.spectroscopy.tests.bigdata import dust
-    # data = Orange.data.Table(dust())
-    data = Orange.data.Table("collagen.csv")
-    w.set_data(data)
-    w.set_subset(data[:40])
-    w.handleNewSignals()
-    rval = app.exec_()
-    w.saveSettings()
-    w.deleteLater()
-    del w
-    app.processEvents()
-    gc.collect()
-    return rval
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__":  # pragma: no cover
+    from Orange.widgets.utils.widgetpreview import WidgetPreview
+    collagen = Orange.data.Table("collagen.csv")
+    WidgetPreview(OWSpectra).run(set_data=collagen,
+                                 set_subset=collagen[:40])

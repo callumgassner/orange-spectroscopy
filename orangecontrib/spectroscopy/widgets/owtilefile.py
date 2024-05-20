@@ -21,7 +21,7 @@ from Orange.widgets.settings import Setting, ContextSetting, \
     PerfectDomainContextHandler, SettingProvider
 from Orange.widgets.utils.domaineditor import DomainEditor
 from Orange.widgets.utils.filedialogs import RecentPathsWComboMixin, open_filename_dialog
-from Orange.widgets.widget import Input, Msg, Output
+from Orange.widgets.widget import MultiInput, Msg, Output
 
 # Backward compatibility (from owfile): class RecentPath used to be defined in this module,
 # and it is used in saved (pickled) settings. It must be imported into the
@@ -43,7 +43,7 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
     replaces = ["orangecontrib.protospec.widgets.owtilefile.OWTilefile"]
 
     class Inputs:
-        preprocessor = Input("Preprocessor", Preprocess)
+        preprocessor = MultiInput("Preprocessor", Preprocess)
 
     class Outputs:
         data = Output("Data", Table,
@@ -82,6 +82,8 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
     class Warning(widget.OWWidget.Warning):
         no_preprocessor = Msg("No preprocessor on input."
                               " Press Reload to load anyway.")
+        new_preprocessor = Msg("Preprocessor has changed."
+                               " Press Reload to apply.")
         file_too_big = widget.Msg("The file is too large to load automatically."
                                   " Press Reload to load.")
         load_warning = widget.Msg("Read warning:\n{}")
@@ -105,7 +107,7 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
     ]
 
     def __init__(self):
-        self.preprocessor = None
+        self.preprocessor = PreprocessorList()
         super().__init__()
         ### owfile init code-copy ###
         RecentPathsWComboMixin.__init__(self)
@@ -171,7 +173,8 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
         url_combo.setEditable(True)
         url_combo.setInsertPolicy(url_combo.InsertAtTop)
         url_edit = url_combo.lineEdit()
-        l, t, r, b = url_edit.getTextMargins()
+        m = url_edit.textMargins()
+        l, t, r, b = m.left(), m.top(), m.bottom(), m.right()
         url_edit.setTextMargins(l + 5, t, r, b)
         layout.addWidget(url_combo, 3, 1, 3, 3)
         url_combo.activated.connect(self._url_set)
@@ -478,25 +481,45 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
         return not(p is None or (isinstance(p, PreprocessorList) and len(p.preprocessors) == 0))
 
     @staticmethod
-    def _format_preproc_str(p):
-        pstring = str()
-        if isinstance(p, PreprocessorList):
-            for preproc in p.preprocessors:
-                pstring += "\n{0}".format(preproc)
-        else:
-            pstring = str(p)
-        return pstring
+    def _format_preproc_str(preprocessor):
+        pstrings = []
+        for i in preprocessor.preprocessors:
+            if isinstance(i, PreprocessorList):
+                for pp in i.preprocessors:
+                    pstrings.append(str(pp))
+            else:
+                pstrings.append(str(i))
+        return "\n".join(ps for ps in pstrings if ps != "None")
 
-    @Inputs.preprocessor
-    def update_preprocessor(self, preproc):
+    def warn_preprocessor(self):
         self.Warning.no_preprocessor.clear()
-        if not self._is_preproc(preproc):
+        self.Warning.new_preprocessor.clear()
+        if not any(self._is_preproc(p) for p in self.preprocessor.preprocessors):
             self.info_preproc.setText("No preprocessor on input.")
             self.Warning.no_preprocessor()
-        elif self.preprocessor is not preproc:
-            self.info_preproc.setText("New preprocessor, reload file to use." +
-                self._format_preproc_str(preproc))
-        self.preprocessor = preproc
+            return True
+        self.info_preproc.setText("New preprocessor, reload file to use.\n" +
+                                  self._format_preproc_str(self.preprocessor))
+        self.Warning.new_preprocessor()
+        return False
+
+    @Inputs.preprocessor.insert
+    def insert_preprocessor(self, index: int, preprocessor: Preprocess):
+        """Insert a Preprocessor or PreprocessorList at index"""
+        self.preprocessor.preprocessors.insert(index, preprocessor)
+        self.warn_preprocessor()
+
+    @Inputs.preprocessor
+    def set_preprocessor(self, index: int, preprocessor: Preprocess):
+        """Set the input preprocessor at index"""
+        self.preprocessor.preprocessors[index] = preprocessor
+        self.warn_preprocessor()
+
+    @Inputs.preprocessor.remove
+    def remove_preprocessor(self, index: int):
+        """Remove a preprocessor at index"""
+        del self.preprocessor.preprocessors[index]
+        self.warn_preprocessor()
 
     def browse_file(self, in_demos=False):
         if in_demos:
@@ -520,8 +543,8 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
 
         self.source = self.LOCAL_FILE
 
-        if not self._is_preproc(self.preprocessor):
-            return self.Warning.no_preprocessor()
+        if self.warn_preprocessor():
+            return
         self.load_data()
 
     @classmethod
@@ -565,7 +588,7 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
                 reader.set_preprocessor(self.preprocessor)
                 if self.preprocessor is not None:
                     self.info_preproc.setText(
-                        self._format_preproc_str(self.preprocessor).lstrip("\n"))
+                        self._format_preproc_str(self.preprocessor))
             else:
                 # only allow readers with tile-by-tile support to run.
                 reader = None
@@ -577,13 +600,7 @@ class OWTilefile(widget.OWWidget, RecentPathsWComboMixin):
 
 
 if __name__ == "__main__":
-    import sys
+    from Orange.widgets.utils.widgetpreview import WidgetPreview
     from orangecontrib.spectroscopy.preprocess import Cut, LinearBaseline
-    import orangecontrib.spectroscopy  #load readers
-    a = QApplication(sys.argv)
     preproc = PreprocessorList([LinearBaseline(), Cut(lowlim=2000, highlim=2006)])
-    ow = OWTilefile()
-    ow.update_preprocessor(preproc)
-    ow.show()
-    a.exec_()
-    ow.saveSettings()
+    WidgetPreview(OWTilefile).run(insert_preprocessor=(0, preproc))

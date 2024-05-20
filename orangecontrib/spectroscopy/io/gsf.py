@@ -51,5 +51,5 @@ class GSFReader(FileFormat, SpectralFileFormat):
 
     def read_spectra(self):
         X, XRr, YRr = reader_gsf(self.filename)
-        data = _spectra_from_image(X, [1], XRr, YRr)
+        data = _spectra_from_image(X, np.array([1]), XRr, YRr)
         return data

@@ -1,7 +1,7 @@
 import pyqtgraph as pg
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QVBoxLayout, QFormLayout, QPushButton, QApplication, QStyle
+from AnyQt.QtCore import Qt
+from AnyQt.QtGui import QColor
+from AnyQt.QtWidgets import QVBoxLayout, QFormLayout, QPushButton, QApplication, QStyle
 
 from Orange.widgets import gui
 from orangecontrib.spectroscopy.preprocess import LinearBaseline, RubberbandBaseline

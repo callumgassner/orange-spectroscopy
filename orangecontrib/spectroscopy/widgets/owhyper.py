@@ -1,4 +1,5 @@
 import collections.abc
+import math
 from collections import OrderedDict
 from xml.sax.saxutils import escape
 
@@ -22,7 +23,8 @@ from PIL import Image
 
 import Orange.data
 from Orange.preprocess.transformation import Identity
-from Orange.data import Domain, DiscreteVariable, ContinuousVariable, Variable
+from Orange.data import Domain, DiscreteVariable, ContinuousVariable
+from Orange.widgets.visualize.utils.customizableplot import CommonParameterSetter
 from Orange.widgets.widget import OWWidget, Msg, OWComponent, Input
 from Orange.widgets import gui
 from Orange.widgets.settings import \
@@ -30,13 +32,17 @@ from Orange.widgets.settings import \
 from Orange.widgets.utils.itemmodels import DomainModel, PyListModel
 from Orange.widgets.utils import saveplot
 from Orange.widgets.utils.concurrent import TaskState, ConcurrentMixin
+from Orange.widgets.visualize.utils.plotutils import GraphicsView, PlotItem, AxisItem
+
+from orangewidget.utils.visual_settings_dlg import VisualSettingsDialog
 
 from orangecontrib.spectroscopy.preprocess import Integrate
 from orangecontrib.spectroscopy.utils import values_to_linspace, index_values_nan, split_to_size
 
 from orangecontrib.spectroscopy.widgets.owspectra import InteractiveViewBox, \
     MenuFocus, CurvePlot, SELECTONE, SELECTMANY, INDIVIDUAL, AVERAGE, \
-    HelpEventDelegate, selection_modifiers
+    HelpEventDelegate, selection_modifiers, \
+    ParameterSetter as SpectraParameterSetter
 
 from orangecontrib.spectroscopy.widgets.gui import MovableVline, lineEditDecimalOrNone,\
     pixels_to_decimals, float_to_str_decimals
@@ -52,6 +58,10 @@ class InterruptException(Exception):
 
 
 class ImageTooBigException(Exception):
+    pass
+
+
+class UndefinedImageException(Exception):
     pass
 
 
@@ -76,6 +86,7 @@ def refresh_integral_markings(dis, markings_list, curveplot):
 
             if el[0] == "curve":
                 bs_x, bs_ys, penargs = el[1]
+                bs_x, bs_ys = np.asarray(bs_x), np.asarray(bs_ys)
                 curve = pg.PlotCurveItem()
                 curve.setPen(pg.mkPen(color=QColor(color), **penargs))
                 curve.setZValue(10)
@@ -84,6 +95,7 @@ def refresh_integral_markings(dis, markings_list, curveplot):
 
             elif el[0] == "fill":
                 (x1, ys1), (x2, ys2) = el[1]
+                bs_x, bs_ys = np.asarray(bs_x), np.asarray(bs_ys)
                 phigh = pg.PlotCurveItem(x1, ys1[0], pen=None)
                 plow = pg.PlotCurveItem(x2, ys2[0], pen=None)
                 color = QColor(color)
@@ -120,7 +132,7 @@ def get_levels(img):
     while img.size > 2 ** 16:
         img = img[::2, ::2]
     mn, mx = bottleneck.nanmin(img), bottleneck.nanmax(img)
-    if mn == mx:
+    if mn == mx or math.isnan(mx) or math.isnan(mn):
         mn = 0
         mx = 255
     return [mn, mx]
@@ -305,6 +317,7 @@ class ImageColorSettingMixin:
 
     def setup_color_settings_box(self):
         box = gui.vBox(self)
+        box.setContentsMargins(0, 0, 0, 5)
         self.color_cb = gui.comboBox(box, self, "palette_index", label="Color:",
                                      labelWidth=50, orientation=Qt.Horizontal)
         self.color_cb.setIconSize(QSize(64, 16))
@@ -317,7 +330,6 @@ class ImageColorSettingMixin:
 
         gui.checkBox(box, self, "show_legend", label="Show legend",
                      callback=self.update_legend_visible)
-
         form = QFormLayout(
             formAlignment=Qt.AlignLeft,
             labelAlignment=Qt.AlignLeft,
@@ -548,7 +560,7 @@ class ImageColorLegend(GraphicsWidget):
         self.setMinimumWidth(self.width_bar)
         self.setMaximumWidth(self.width_bar)
         self.rect = QGraphicsRectItem(QRectF(0, 0, self.width_bar, 100), self)
-        self.axis = pg.AxisItem('right', parent=self)
+        self.axis = AxisItem('right', parent=self)
         self.axis.setX(self.width_bar)
         self.axis.geometryChanged.connect(self._update_width)
         self.adapt_to_size()
@@ -594,12 +606,48 @@ class ImageColorLegend(GraphicsWidget):
             self.rect.setBrush(QBrush(self.gradient))
 
 
+class ImageParameterSetter(CommonParameterSetter):
+    IMAGE_ANNOT_BOX = "Image annotations"
+
+    def __init__(self, master):
+        super().__init__()
+        self.master = master
+
+    def update_setters(self):
+        self.initial_settings = {
+            self.IMAGE_ANNOT_BOX: {
+                self.TITLE_LABEL: {self.TITLE_LABEL: ("", "")},
+                self.X_AXIS_LABEL: {self.TITLE_LABEL: ("", "")},
+                self.Y_AXIS_LABEL: {self.TITLE_LABEL: ("", "")},
+            },
+        }
+
+        self._setters[self.IMAGE_ANNOT_BOX] = self._setters[self.ANNOT_BOX]
+
+    @property
+    def title_item(self):
+        return self.master.plot.titleLabel
+
+    @property
+    def axis_items(self):
+        return [value["item"] for value in self.master.plot.axes.values()] \
+               + [self.master.legend.axis]
+
+    @property
+    def getAxis(self):
+        return self.master.plot.getAxis
+
+    @property
+    def legend_items(self):
+        return []
+
+
 class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
                 ImageColorSettingMixin, ImageRGBSettingMixin,
                 ImageZoomMixin, ConcurrentMixin):
 
-    attr_x = ContextSetting(None)
-    attr_y = ContextSetting(None)
+    attr_x = ContextSetting(None, exclude_attributes=True)
+    attr_y = ContextSetting(None, exclude_attributes=True)
     gamma = Setting(0)
 
     selection_changed = Signal()
@@ -614,6 +662,8 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         ConcurrentMixin.__init__(self)
         self.parent = parent
 
+        self.parameter_setter = ImageParameterSetter(self)
+
         self.selection_type = SELECTMANY
         self.saving_enabled = True
         self.selection_enabled = True
@@ -626,12 +676,15 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.xindex = None
         self.yindex = None
 
-        self.plotview = pg.GraphicsLayoutWidget()
-        self.plot = pg.PlotItem(background="w", viewBox=InteractiveViewBox(self))
-        self.plotview.addItem(self.plot)
+        self.plotview = GraphicsView()
+        ci = pg.GraphicsLayout()
+        self.plot = PlotItem(viewBox=InteractiveViewBox(self))
+        self.plot.buttonsHidden = True
+        self.plotview.setCentralItem(ci)
+        ci.addItem(self.plot)
 
         self.legend = ImageColorLegend()
-        self.plotview.addItem(self.legend)
+        ci.addItem(self.legend)
 
         self.plot.scene().installEventFilter(
             HelpEventDelegate(self.help_event, self))
@@ -694,12 +747,15 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
         view_menu.addActions(actions)
         self.addActions(actions)
+        for a in actions:
+            a.setShortcutVisibleInContextMenu(True)
 
         common_options = dict(
             labelWidth=50, orientation=Qt.Horizontal, sendSelectedValue=True)
 
         choose_xy = QWidgetAction(self)
         box = gui.vBox(self)
+        box.setContentsMargins(10, 0, 10, 0)
         box.setFocusPolicy(Qt.TabFocus)
         self.xy_model = DomainModel(DomainModel.METAS | DomainModel.CLASSES,
                                     valid_types=DomainModel.PRIMITIVE)
@@ -773,6 +829,8 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             self.data_ids = {}
 
     def refresh_img_selection(self):
+        if self.lsx is None or self.lsy is None:
+            return
         selected_px = np.zeros((self.lsy[2], self.lsx[2]), dtype=np.uint8)
         selected_px[self.data_imagepixels[self.data_valid_positions, 0],
                     self.data_imagepixels[self.data_valid_positions, 1]] = \
@@ -850,12 +908,9 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.yindex = None
         self.update_vectors()  # clears the vector plot
 
-        if self.data and self.attr_x and self.attr_y:
-            self.start(self.compute_image, self.data, self.attr_x, self.attr_y,
-                       self.parent.image_values(),
-                       self.parent.image_values_fixed_levels())
-        else:
-            self.image_updated.emit()
+        self.start(self.compute_image, self.data, self.attr_x, self.attr_y,
+                    self.parent.image_values(),
+                    self.parent.image_values_fixed_levels())
 
     def set_visible_image(self, img: np.ndarray, rect: QRectF):
         self.vis_img.setImage(img)
@@ -913,6 +968,9 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
                       image_values, image_values_fixed_levels,
                       state: TaskState):
 
+        if data is None or attr_x is None or attr_y is None:
+            raise UndefinedImageException
+
         def progress_interrupt(i: float):
             if state.is_interruption_requested():
                 raise InterruptException
@@ -939,60 +997,59 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         res.image_values_fixed_levels = image_values_fixed_levels
         progress_interrupt(0)
 
-        if lsx[-1] * lsy[-1] > IMAGE_TOO_BIG:
+        if lsx is not None and lsy is not None \
+                and lsx[-1] * lsy[-1] > IMAGE_TOO_BIG:
             raise ImageTooBigException((lsx[-1], lsy[-1]))
 
-        # the code below does this, but part-wise:
-        # d = image_values(data).X[:, 0]
-        parts = []
-        for slice in split_to_size(len(data), 10000):
-            part = image_values(data[slice]).X
-            parts.append(part)
-            progress_interrupt(0)
-        d = np.concatenate(parts)
-
+        ims = image_values(data[:1]).X
+        d = np.full((data.X.shape[0], ims.shape[1]), float("nan"))
         res.d = d
+
+        step = 100000 if len(data) > 1e6 else 10000
+
+        if lsx is not None and lsy is not None:
+            # the code below does this, but part-wise:
+            # d = image_values(data).X[:, 0]
+            for slice in split_to_size(len(data), step):
+                part = image_values(data[slice]).X
+                d[slice, :] = part
+                progress_interrupt(0)
+                state.set_partial_result(res)
+
         progress_interrupt(0)
 
         return res
 
-    def on_done(self, res):
-
-        self.lsx, self.lsy = res.lsx, res.lsy
-        lsx, lsy = self.lsx, self.lsy
-
+    def draw(self, res, finished=False):
         d = res.d
+        lsx, lsy = res.lsx, res.lsy
 
         self.fixed_levels = res.image_values_fixed_levels
+        if finished:
+            self.lsx, self.lsy = lsx, lsy
+            self.data_points = res.data_points
 
-        self.data_points = res.data_points
-
-        xindex, xnan = index_values_nan(res.coorx, self.lsx)
-        yindex, ynan = index_values_nan(res.coory, self.lsy)
-        self.data_valid_positions = valid = np.logical_not(np.logical_or(xnan, ynan))
+        xindex, xnan = index_values_nan(res.coorx, lsx)
+        yindex, ynan = index_values_nan(res.coory, lsy)
+        valid = np.logical_not(np.logical_or(xnan, ynan))
         invalid_positions = len(d) - np.sum(valid)
-        if invalid_positions:
-            self.parent.Information.not_shown(invalid_positions)
 
-        imdata = np.ones((lsy[2], lsx[2], d.shape[1])) * float("nan")
-        imdata[yindex[valid], xindex[valid]] = d[valid]
+        if finished:
+            self.data_valid_positions = valid
+            if invalid_positions:
+                self.parent.Information.not_shown(invalid_positions)
 
-        self.data_values = d
-        self.data_imagepixels = np.vstack((yindex, xindex)).T
-        self.img.setImage(imdata, autoLevels=False)
-        self.update_levels()
-        self.update_rgb_levels()
-        self.update_color_schema()
-        self.update_legend_visible()
+        if lsx is not None and lsy is not None:
+            imdata = np.ones((lsy[2], lsx[2], d.shape[1])) * float("nan")
+            imdata[yindex[valid], xindex[valid]] = d[valid]
 
-        # shift centres of the pixels so that the axes are useful
-        shiftx = _shift(lsx)
-        shifty = _shift(lsy)
-        left = lsx[0] - shiftx
-        bottom = lsy[0] - shifty
-        width = (lsx[1]-lsx[0]) + 2*shiftx
-        height = (lsy[1]-lsy[0]) + 2*shifty
-        self.img.setRect(QRectF(left, bottom, width, height))
+            self.data_values = d
+            self.data_imagepixels = np.vstack((yindex, xindex)).T
+            self.img.setImage(imdata, autoLevels=False)
+            self.update_levels()
+            self.update_rgb_levels()
+            self.update_color_schema()
+            self.update_legend_visible()
 
         # indices need to be saved to quickly draw vectors
         self.yindex = yindex
@@ -1003,9 +1060,25 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
         self.refresh_img_selection()
         self.image_updated.emit()
+        
+        # shift centres of the pixels so that the axes are useful
+        shiftx = _shift(lsx)
+        shifty = _shift(lsy)
+        left = lsx[0] - shiftx
+        bottom = lsy[0] - shifty
+        width = (lsx[1]-lsx[0]) + 2*shiftx
+        height = (lsy[1]-lsy[0]) + 2*shifty
+        self.img.setRect(QRectF(left, bottom, width, height))
 
-    def on_partial_result(self, result):
-        pass
+        if finished:
+            self.refresh_img_selection()
+            self.image_updated.emit()
+
+    def on_done(self, res):
+        self.draw(res, finished=True)
+
+    def on_partial_result(self, res):
+        self.draw(res)
 
     def on_exception(self, ex: Exception):
         if isinstance(ex, InterruptException):
@@ -1013,6 +1086,8 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
         if isinstance(ex, ImageTooBigException):
             self.parent.Error.image_too_big(ex.args[0][0], ex.args[0][1])
+            self.image_updated.emit()
+        elif isinstance(ex, UndefinedImageException):
             self.image_updated.emit()
         else:
             raise ex
@@ -1036,7 +1111,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     replaces = ["orangecontrib.infrared.widgets.owhyper.OWHyper"]
     keywords = ["image", "spectral", "chemical", "imaging"]
 
-    settings_version = 6
+    settings_version = 7
     settingsHandler = DomainContextHandler()
 
     imageplot = SettingProvider(ImagePlot)
@@ -1065,6 +1140,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     lowlim = Setting(None)
     highlim = Setting(None)
     choose = Setting(None)
+    lowlimb = Setting(None)
+    highlimb = Setting(None)
+
+    visual_settings = Setting({}, schema_only=True)
 
     graph_name = "imageplot.plotview"  # defined so that the save button is shown
 
@@ -1076,6 +1155,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
     class Information(SelectionOutputsMixin.Information):
         not_shown = Msg("Undefined positions: {} data point(s) are not shown.")
+        view_locked = Msg("Axes are locked in the visual settings dialog.")
 
     @classmethod
     def migrate_settings(cls, settings_, version):
@@ -1099,6 +1179,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         if version < 6:
             settings_["compat_no_group"] = True
+
+        if version < 7:
+            from orangecontrib.spectroscopy.widgets.owspectra import OWSpectra
+            OWSpectra.migrate_to_visual_settings(settings_)
 
     @classmethod
     def migrate_context(cls, context, version):
@@ -1174,6 +1258,8 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         splitter.addWidget(self.imageplot)
         splitter.addWidget(self.curveplot)
         self.mainArea.layout().addWidget(splitter)
+        self.curveplot.locked_axes_changed.connect(
+            lambda locked: self.Information.view_locked(shown=locked))
 
         self.line1 = MovableVline(position=self.lowlim, label="", report=self.curveplot)
         self.line1.sigMoved.connect(lambda v: setattr(self, "lowlim", v))
@@ -1181,7 +1267,13 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.line2.sigMoved.connect(lambda v: setattr(self, "highlim", v))
         self.line3 = MovableVline(position=self.choose, label="", report=self.curveplot)
         self.line3.sigMoved.connect(lambda v: setattr(self, "choose", v))
-        for line in [self.line1, self.line2, self.line3]:
+        self.line4 = MovableVline(position=self.choose, label="baseline", report=self.curveplot,
+                                  color=(255, 140, 26))
+        self.line4.sigMoved.connect(lambda v: setattr(self, "lowlimb", v))
+        self.line5 = MovableVline(position=self.choose, label="baseline", report=self.curveplot,
+                                  color=(255, 140, 26))
+        self.line5.sigMoved.connect(lambda v: setattr(self, "highlimb", v))
+        for line in [self.line1, self.line2, self.line3, self.line4, self.line5]:
             line.sigMoveFinished.connect(self.changed_integral_range)
             self.curveplot.add_marking(line)
             line.hide()
@@ -1196,6 +1288,18 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         # prepare interface according to the new context
         self.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
+        
+        self._setup_plot_parameters()
+
+    def _setup_plot_parameters(self):
+        parts_from_spectra = [SpectraParameterSetter.ANNOT_BOX,
+                              SpectraParameterSetter.LABELS_BOX,
+                              SpectraParameterSetter.VIEW_RANGE_BOX]
+        for cp in parts_from_spectra:
+            self.imageplot.parameter_setter.initial_settings[cp] = \
+                self.curveplot.parameter_setter.initial_settings[cp]
+
+        VisualSettingsDialog(self, self.imageplot.parameter_setter.initial_settings)
 
     def setup_vector_plot_controls(self):
         self.vectorbox = gui.widgetBox(self.controlArea, box=True)
@@ -1390,7 +1494,11 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         if self.value_type == 0:  # integrals
             imethod = self.integration_methods[self.integration_method]
 
-            if imethod != Integrate.PeakAt:
+            if imethod == Integrate.Separate:
+                return Integrate(methods=imethod,
+                                 limits=[[self.lowlim, self.highlim,
+                                          self.lowlimb, self.highlimb]])
+            elif imethod != Integrate.PeakAt:
                 return Integrate(methods=imethod,
                                  limits=[[self.lowlim, self.highlim]])
             else:
@@ -1425,6 +1533,8 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.line1.hide()
         self.line2.hide()
         self.line3.hide()
+        self.line4.hide()
+        self.line5.hide()
         if self.value_type == 0:
             self.box_values_spectra.setDisabled(False)
             self.box_values_feature.setDisabled(True)
@@ -1434,6 +1544,9 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                 self.line2.show()
             else:
                 self.line3.show()
+            if self.integration_methods[self.integration_method] == Integrate.Separate:
+                self.line4.show()
+                self.line5.show()
         elif self.value_type == 1:
             self.box_values_spectra.setDisabled(True)
             self.box_values_feature.setDisabled(False)
@@ -1485,6 +1598,17 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.output_image_selection()
         self.update_visible_image()
 
+    def set_visual_settings(self, key, value):
+        im_setter = self.imageplot.parameter_setter
+        cv_setter = self.curveplot.parameter_setter
+        skip_im_setter = [SpectraParameterSetter.ANNOT_BOX,
+                          SpectraParameterSetter.VIEW_RANGE_BOX]
+        if key[0] not in skip_im_setter and key[0] in im_setter.initial_settings:
+            im_setter.set_parameter(key, value)
+        if key[0] in cv_setter.initial_settings:
+            cv_setter.set_parameter(key, value)
+        self.visual_settings[key] = value
+
     def _init_integral_boundaries(self):
         # requires data in curveplot
         self.disable_integral_range = True
@@ -1510,6 +1634,15 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         elif self.choose > maxx:
             self.choose = maxx
         self.line3.setValue(self.choose)
+
+        if self.lowlimb is None or not minx <= self.lowlimb <= maxx:
+            self.lowlimb = minx
+        self.line4.setValue(self.lowlimb)
+
+        if self.highlimb is None or not minx <= self.highlimb <= maxx:
+            self.highlimb = maxx
+        self.line5.setValue(self.highlimb)
+
         self.disable_integral_range = False
 
     def save_graph(self):

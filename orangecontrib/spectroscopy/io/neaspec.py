@@ -16,7 +16,7 @@ class NeaReader(FileFormat, SpectralFileFormat):
 
     def read_v1(self):
 
-        with open(self.filename, "rt") as f:
+        with open(self.filename, "rt", encoding="utf8") as f:
             next(f)  # skip header
             l = next(f)
             l = l.strip()
@@ -120,7 +120,7 @@ class NeaReader(FileFormat, SpectralFileFormat):
 
         # Find line in which data begins
         count = 0
-        with open(self.filename, "r") as f:
+        with open(self.filename, "rt", encoding="utf8") as f:
             while f:
                 line = f.readline()
                 count = count + 1
@@ -185,7 +185,7 @@ class NeaReader(FileFormat, SpectralFileFormat):
 
     def read_spectra(self):
         version = 1
-        with open(self.filename, "rt") as f:
+        with open(self.filename, "rt", encoding="utf8") as f:
             if f.read(2) == '# ':
                 version = 2
         if version == 1:

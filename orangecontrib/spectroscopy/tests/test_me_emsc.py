@@ -208,6 +208,39 @@ class TestME_EMSC(unittest.TestCase):
         # it was crashing before
         ME_EMSC(reference=reference)(self.spectra)
 
+    def disabled_test_eq(self):
+        ref = self.reference
+        spectra = self.spectra
+        d1 = ME_EMSC(reference=ref, ncomp=False, weights=False, max_iter=1)(spectra)
+        d2 = ME_EMSC(reference=ref, ncomp=False, weights=False, max_iter=1)(spectra)
+        self.assertEqual(d1.domain, d2.domain)
+        self.assertEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = ME_EMSC(reference=ref, ncomp=2, weights=False, max_iter=1)(spectra)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = ME_EMSC(reference=ref, ncomp=False, weights=False, max_iter=1,
+                     n0=np.linspace(1.1, 1.4, 11),
+                     a=np.linspace(2, 7.1, 11))(spectra)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        d2 = ME_EMSC(reference=ref, ncomp=False, weights=False, max_iter=2)(spectra)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
+        r2 = ref.copy()
+        d2 = ME_EMSC(reference=r2, ncomp=False, weights=False, max_iter=1)(spectra)
+        self.assertEqual(d1.domain, d2.domain)
+        self.assertEqual(hash(d1.domain), hash(d2.domain))
+
+        with r2.unlocked():
+            r2[0][0] = 1
+        d2 = ME_EMSC(reference=r2, ncomp=False, weights=False, max_iter=1)(spectra)
+        self.assertNotEqual(d1.domain, d2.domain)
+        self.assertNotEqual(hash(d1.domain), hash(d2.domain))
+
 
 class TestInflectionPointWeighting(unittest.TestCase):
 

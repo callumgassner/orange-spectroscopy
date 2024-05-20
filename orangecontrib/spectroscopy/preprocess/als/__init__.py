@@ -11,7 +11,7 @@ from orangecontrib.spectroscopy.preprocess.als.baseline import als, arpls, \
 
 
 class ALSFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class ALSCommon(CommonDomainOrderUnknowns):
@@ -54,7 +54,7 @@ class ALSP(Preprocess):
 
 
 class ARPLSFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class ARPLSCommon(CommonDomainOrderUnknowns):
@@ -100,7 +100,7 @@ class ARPLS(Preprocess):
 
 
 class AIRPLSFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class AIRPLSCommon(CommonDomainOrderUnknowns):

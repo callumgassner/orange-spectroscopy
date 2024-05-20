@@ -3,21 +3,14 @@ from scipy.signal import hilbert
 from sklearn.decomposition import TruncatedSVD
 
 import Orange
+from Orange.data import Table
 from Orange.preprocess.preprocess import Preprocess
 from Orange.data.util import get_unique_names
 
-from orangecontrib.spectroscopy.data import getx, spectra_mean
+from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.preprocess.utils import SelectColumn, CommonDomainOrderUnknowns, \
-    interp1d_with_unknowns_numpy, nan_extend_edges_and_interpolate
-from orangecontrib.spectroscopy.preprocess.emsc import weighted_wavenumbers
-
-
-def interpolate_to_data(other_xs, other_data, wavenumbers):
-    # all input data needs to be interpolated (and NaNs removed)
-    interpolated = interp1d_with_unknowns_numpy(other_xs, other_data, wavenumbers)
-    # we know that X is not NaN. same handling of reference as of X
-    interpolated, _ = nan_extend_edges_and_interpolate(wavenumbers, interpolated)
-    return interpolated
+    interpolate_extend_to, CommonDomainRef, table_eq_x, subset_for_hash
+from orangecontrib.spectroscopy.preprocess.emsc import weighted_wavenumbers, average_table_x
 
 
 def calculate_complex_n(ref_X,wavenumbers):
@@ -88,19 +81,20 @@ def cal_ncomp(reference, wavenumbers,  explainedVarLim, alpha0, gamma):
 
 
 class ME_EMSCFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class ME_EMSCModel(SelectColumn):
-    pass
+    InheritEq = True
 
 
-class _ME_EMSC(CommonDomainOrderUnknowns):
+class _ME_EMSC(CommonDomainOrderUnknowns, CommonDomainRef):
 
     def __init__(self, reference, weights, ncomp, alpha0, gamma, maxNiter, fixedNiter, positiveRef, domain):
-        super().__init__(domain)
-        self.reference = reference
-        self.weights = weights  # !!! THIS SHOULD BE A NP ARRAY (or similar) with inflection points
+        CommonDomainOrderUnknowns.__init__(self, domain)
+        CommonDomainRef.__init__(self, reference, domain)
+        assert len(reference) == 1
+        self.weights = weights
         self.ncomp = ncomp
         self.alpha0 = alpha0
         self.gamma = gamma
@@ -234,8 +228,7 @@ class _ME_EMSC(CommonDomainOrderUnknowns):
                             break
             return newspectra, RMSEall, numberOfIterations
 
-        ref_X = np.atleast_2d(spectra_mean(self.reference.X))
-        ref_X = interpolate_to_data(getx(self.reference), ref_X, wavenumbers)
+        ref_X = interpolate_extend_to(self.reference, wavenumbers)
         ref_X = ref_X[0]
 
         wei_X = weighted_wavenumbers(self.weights, wavenumbers)
@@ -284,6 +277,24 @@ class _ME_EMSC(CommonDomainOrderUnknowns):
         newspectra = np.hstack((newspectra, numberOfIterations.reshape(-1, 1),RMSEall.reshape(-1, 1)))
         return newspectra
 
+    def __disabled_eq__(self, other):
+        return CommonDomainRef.__eq__(self, other) \
+            and self.ncomp == other.ncomp \
+            and np.array_equal(self.alpha0, other.alpha0) \
+            and np.array_equal(self.gamma, other.gamma) \
+            and self.maxNiter == other.maxNiter \
+            and self.fixedNiter == other.fixedNiter \
+            and self.positiveRef == other.positiveRef \
+            and (self.weights == other.weights
+                 if not isinstance(self.weights, Table)
+                 else table_eq_x(self.weights, other.weights))
+
+    def __disabled_hash__(self):
+        weights = self.weights if not isinstance(self.weights, Table) \
+            else subset_for_hash(self.weights.X)
+        return hash((CommonDomainRef.__hash__(self), weights, self.ncomp, tuple(self.alpha0),
+                     tuple(self.gamma), self.maxNiter, self.fixedNiter, self.positiveRef))
+
 
 class MissingReferenceException(Exception):
     pass
@@ -298,6 +309,8 @@ class ME_EMSC(Preprocess):
         if reference is None:
             raise MissingReferenceException()
         self.reference = reference
+        if len(self.reference) > 1:
+            self.reference = average_table_x(self.reference)
         self.weights = weights
         self.ncomp = ncomp
         self.output_model = output_model
@@ -315,10 +328,8 @@ class ME_EMSC(Preprocess):
         self.gamma = self.h * np.log(10) / (4 * np.pi * 0.5 * np.pi * (self.n0 - 1) * self.a * 1e-6)
 
         if not self.ncomp:
-            ref_X = np.atleast_2d(spectra_mean(self.reference.X))
             wavenumbers_ref = np.array(sorted(getx(self.reference)))
-            ref_X = interpolate_to_data(getx(self.reference), ref_X, wavenumbers_ref)
-            ref_X = ref_X[0]
+            ref_X = interpolate_extend_to(self.reference, wavenumbers_ref)[0]
             self.ncomp = cal_ncomp(ref_X, wavenumbers_ref, explainedVariance, self.alpha0, self.gamma)
         else:
             self.explainedVariance = False

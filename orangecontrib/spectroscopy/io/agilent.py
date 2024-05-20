@@ -2,7 +2,7 @@ import Orange
 import numpy as np
 from Orange.data import FileFormat, ContinuousVariable, Domain
 
-from orangecontrib.spectroscopy.utils.agilent import agilentImage, agilentImageIFG, agilentMosaic, agilentMosaicIFG, \
+from agilent_format import agilentImage, agilentImageIFG, agilentMosaic, agilentMosaicIFG, \
     agilentMosaicTiles
 from orangecontrib.spectroscopy.io.util import SpectralFileFormat, _spectra_from_image, TileFileFormat
 
@@ -183,7 +183,8 @@ class agilentMosaicTileReader(FileFormat, TileFileFormat):
         am = agilentMosaicTiles(self.filename)
         info = am.info
         tiles = am.tiles
-        ytiles = am.tiles.shape[0]
+        xtiles = am.tiles.shape[0]
+        ytiles = am.tiles.shape[1]
 
         features = info['wavenumbers']
 
@@ -199,13 +200,19 @@ class agilentMosaicTileReader(FileFormat, TileFileFormat):
             # Use pixel units if FPA Pixel Size is not known
             px_size = 1
 
-        for (x, y) in np.ndindex(tiles.shape):
-            tile = tiles[x, y]()
-            x_size, y_size = tile.shape[1], tile.shape[0]
-            x_locs = np.linspace(x*x_size*px_size, (x+1)*x_size*px_size, num=x_size, endpoint=False)
-            y_locs = np.linspace((ytiles-y-1)*y_size*px_size, (ytiles-y)*y_size*px_size, num=y_size, endpoint=False)
+        for x in range(xtiles):
+            # Iterate over y tiles in reversed order to give matching output to
+            # the not-tiled reader
+            for y in range(ytiles - 1, -1, -1):
+                tile = tiles[x, y]()
+                if np.isnan(tile).all():
+                    # Return an empty Table if tile doesn't exist (instead of storing a tile of nans)
+                    yield Orange.data.Table.from_domain(domain)
+                x_size, y_size = tile.shape[1], tile.shape[0]
+                x_locs = np.linspace(x*x_size*px_size, (x+1)*x_size*px_size, num=x_size, endpoint=False)
+                y_locs = np.linspace((ytiles-y-1)*y_size*px_size, (ytiles-y)*y_size*px_size, num=y_size, endpoint=False)
 
-            _, data, additional_table = _spectra_from_image(tile, None, x_locs, y_locs)
-            data = np.asarray(data, dtype=np.float64)  # Orange assumes X to be float64
-            tile_table = Orange.data.Table.from_numpy(domain, X=data, metas=additional_table.metas)
-            yield tile_table
+                _, data, additional_table = _spectra_from_image(tile, None, x_locs, y_locs)
+                data = np.asarray(data, dtype=np.float64)  # Orange assumes X to be float64
+                tile_table = Orange.data.Table.from_numpy(domain, X=data, metas=additional_table.metas)
+                yield tile_table

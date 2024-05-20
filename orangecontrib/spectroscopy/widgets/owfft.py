@@ -594,7 +594,7 @@ class OWFFT(OWWidget):
             return
 
         try:
-            lwn, _ = self.data.get_column_view("Effective Laser Wavenumber")
+            lwn = self.data.get_column("Effective Laser Wavenumber")
         except ValueError:
             if not self.dx_HeNe_cb.isEnabled():
                 # Only reset if disabled by this code, otherwise leave alone
@@ -610,7 +610,7 @@ class OWFFT(OWWidget):
             self.dx_HeNe_cb.setDisabled(True)
             self.dx_edit.setDisabled(True)
         try:
-            udr, _ = self.data.get_column_view("Under Sampling Ratio")
+            udr = self.data.get_column("Under Sampling Ratio")
         except ValueError:
             udr = 1
         else:

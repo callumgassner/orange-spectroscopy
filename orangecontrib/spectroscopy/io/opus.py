@@ -1,4 +1,5 @@
 import io
+import warnings
 
 import Orange
 import numpy as np
@@ -167,18 +168,23 @@ class OPUSReader(FileFormat):
                     meta_data = params
 
         visible_images = []
-        for img in opusFC.getVisImages(self.filename):
-            try:
-                visible_images.append({
-                    'name': img['Title'],
-                    'image_ref': io.BytesIO(img['image']),
-                    'pos_x': img['Pos. X'] * img['PixelSizeX'],
-                    'pos_y': img['Pos. Y'] * img['PixelSizeY'],
-                    'pixel_size_x': img['PixelSizeX'],
-                    'pixel_size_y': img['PixelSizeY'],
-                })
-            except KeyError:
-                pass
+        try:
+            opus_imgs = opusFC.getVisImages(self.filename)
+        except Exception as e:
+            warnings.warn(f"Visible images load failed: {e}")
+        else:
+            for img in opus_imgs:
+                try:
+                    visible_images.append({
+                        'name': img['Title'],
+                        'image_ref': io.BytesIO(img['image']),
+                        'pos_x': img['Pos. X'] * img['PixelSizeX'],
+                        'pos_y': img['Pos. Y'] * img['PixelSizeY'],
+                        'pixel_size_x': img['PixelSizeX'],
+                        'pixel_size_y': img['PixelSizeY'],
+                    })
+                except KeyError:
+                    pass
 
         domain = Orange.data.Domain(attrs, clses, metas)
 

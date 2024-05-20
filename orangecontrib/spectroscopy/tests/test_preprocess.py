@@ -17,6 +17,7 @@ from orangecontrib.spectroscopy.preprocess import Absorbance, Transmittance, \
 from orangecontrib.spectroscopy.preprocess.als import ALSP, ARPLS, AIRPLS
 from orangecontrib.spectroscopy.preprocess.me_emsc import ME_EMSC
 from orangecontrib.spectroscopy.preprocess.atm_corr import AtmCorr
+from orangecontrib.spectroscopy.preprocess.utils import replacex
 from orangecontrib.spectroscopy.tests.util import smaller_data
 
 
@@ -201,6 +202,22 @@ class TestTransmittance(unittest.TestCase):
         calcdata = Absorbance()(Transmittance()(data))
         np.testing.assert_allclose(data.X, calcdata.X)
 
+    def disabled_test_eq(self):
+        data = SMALL_COLLAGEN
+        t1 = Transmittance()(data)
+        t2 = Transmittance()(data)
+        self.assertEqual(t1.domain, t2.domain)
+        data2 = Table.from_numpy(None, [[1.0, 2.0, 3.0, 4.0]])
+        t3 = Transmittance()(data2)
+        self.assertNotEqual(t1.domain, t3.domain)
+        t4 = Transmittance(reference=data2)(data)
+        self.assertNotEqual(t1.domain, t4.domain)
+        t5 = Transmittance(reference=data2)(data[:1])
+        self.assertGreater(len(t4), len(t5))
+        self.assertEqual(t4.domain, t5.domain)
+        a = Absorbance()(data)
+        self.assertNotEqual(a.domain, t1.domain)
+
 
 class TestAbsorbance(unittest.TestCase):
 
@@ -219,6 +236,20 @@ class TestAbsorbance(unittest.TestCase):
         data = Transmittance()(SMALL_COLLAGEN)
         calcdata = Transmittance()(Absorbance()(data))
         np.testing.assert_allclose(data.X, calcdata.X)
+
+    def disabled_test_eq(self):
+        data = SMALL_COLLAGEN
+        t1 = Absorbance()(data)
+        t2 = Absorbance()(data)
+        self.assertEqual(t1.domain, t2.domain)
+        data2 = Table.from_numpy(None, [[1.0, 2.0, 3.0, 4.0]])
+        t3 = Absorbance()(data2)
+        self.assertNotEqual(t1.domain, t3.domain)
+        t4 = Absorbance(reference=data2)(data)
+        self.assertNotEqual(t1.domain, t4.domain)
+        t5 = Absorbance(reference=data2)(data[:1])
+        self.assertGreater(len(t4), len(t5))
+        self.assertEqual(t4.domain, t5.domain)
 
 
 class TestSavitzkyGolay(unittest.TestCase):
@@ -240,6 +271,24 @@ class TestSavitzkyGolay(unittest.TestCase):
         fdata = f(data)
         np.testing.assert_almost_equal(fdata.X,
                                        [[4.86857143, 3.47428571, 1.49428571, 0.32857143]])
+
+    def disabled_test_eq(self):
+        data = Table.from_numpy(None, [[2, 1, 2, 2, 3]])
+        p1 = SavitzkyGolayFiltering(window=5, polyorder=2, deriv=0)(data)
+        p2 = SavitzkyGolayFiltering(window=5, polyorder=2, deriv=1)(data)
+        p3 = SavitzkyGolayFiltering(window=5, polyorder=3, deriv=0)(data)
+        p4 = SavitzkyGolayFiltering(window=7, polyorder=2, deriv=0)(data)
+        self.assertNotEqual(p1.domain, p2.domain)
+        self.assertNotEqual(p1.domain, p3.domain)
+        self.assertNotEqual(p1.domain, p4.domain)
+
+        s1 = SavitzkyGolayFiltering(window=5, polyorder=2, deriv=0)(data)
+        self.assertEqual(p1.domain, s1.domain)
+
+        # even if the data set is different features should be the same
+        data2 = Table.from_numpy(None, [[2, 1, 3, 4, 3]])
+        s2 = SavitzkyGolayFiltering(window=5, polyorder=2, deriv=0)(data2)
+        self.assertEqual(p1.domain, s2.domain)
 
 
 class TestGaussian(unittest.TestCase):
@@ -398,6 +447,26 @@ class TestNormalize(unittest.TestCase):
         p = Normalize(method=Normalize.SNV, lower=0, upper=2)(data)
         np.testing.assert_equal(p.X, q)
 
+    def disabled_test_eq(self):
+        data = Table.from_numpy(None, [[2, 1, 2, 2, 3]])
+        p1 = Normalize(method=Normalize.MinMax)(data)
+        p2 = Normalize(method=Normalize.SNV)(data)
+        p3 = Normalize(method=Normalize.MinMax)(data)
+        self.assertNotEqual(p1.domain, p2.domain)
+        self.assertEqual(p1.domain, p3.domain)
+
+        p1 = Normalize(method=Normalize.Area, int_method=Integrate.PeakMax,
+                       lower=0, upper=4)(data)
+        p2 = Normalize(method=Normalize.Area, int_method=Integrate.Baseline,
+                       lower=0, upper=4)(data)
+        p3 = Normalize(method=Normalize.Area, int_method=Integrate.PeakMax,
+                       lower=1, upper=4)(data)
+        p4 = Normalize(method=Normalize.Area, int_method=Integrate.PeakMax,
+                       lower=0, upper=4)(data)
+        self.assertNotEqual(p1.domain, p2.domain)
+        self.assertNotEqual(p1.domain, p3.domain)
+        self.assertEqual(p1.domain, p4.domain)
+
 
 class TestNormalizeReference(unittest.TestCase):
 
@@ -527,3 +596,29 @@ class TestCurveShift(unittest.TestCase):
         fdata = f(data)
         np.testing.assert_almost_equal(fdata.X,
                                        [[2.1, 3.1, 4.1, 5.1]])
+
+
+class TestUtils(unittest.TestCase):
+
+    def test_replacex(self):
+        data = Table.from_numpy(None, [[1.0, 2.0, 3.0, 4.0]])
+        self.assertEqual(list(getx(data)), [0, 1, 2, 3])
+        dr = replacex(data, ["a", 1, 2, 3])
+        self.assertEqual([a.name for a in dr.domain.attributes],
+                         ["a", "1", "2", "3"])
+        dr = replacex(data, np.array([0.5, 1, 2, 3]))
+        self.assertEqual(list(getx(dr)), [0.5, 1, 2, 3])
+        np.testing.assert_equal(data.X, dr.X)
+
+    def test_replacex_transforms(self):
+        data = Table.from_numpy(None, [[1.0, 2.0, 3.0, 4.0]])
+        dr = replacex(data, np.linspace(5, 8, 4))
+        self.assertEqual(list(getx(dr)), [5, 6, 7, 8])
+        np.testing.assert_equal(data.X, dr.X)
+        dt = data.transform(dr.domain)
+        np.testing.assert_equal(data.X, dt.X)
+
+    def test_replacex_invalid(self):
+        data = Table.from_numpy(None, [[1.0, 2.0, 3.0, 4.0]])
+        with self.assertRaises(AssertionError):
+            replacex(data, [1, 2, 3])

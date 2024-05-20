@@ -85,7 +85,7 @@ class HDRReader_STXM(FileFormat, SpectralFileFormat):
             assert self._lex.get_token() == ';'
 
     def read_spectra(self):
-        with open(self.filename, 'r') as f:
+        with open(self.filename, 'rt', encoding="utf8") as f:
             # Parse file contents into dictionaries/lists
             self._lex = shlex.shlex(instream=f)
             try:

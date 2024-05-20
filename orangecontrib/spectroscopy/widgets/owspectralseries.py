@@ -17,6 +17,7 @@ from Orange.widgets import gui
 from Orange.widgets.settings import \
     Setting, ContextSetting, DomainContextHandler, SettingProvider
 from Orange.widgets.utils.itemmodels import DomainModel
+from Orange.widgets.visualize.utils.plotutils import GraphicsView, PlotItem
 
 from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.utils import values_to_linspace, index_values
@@ -32,7 +33,7 @@ from orangecontrib.spectroscopy.widgets.utils import \
 class LineScanPlot(QWidget, OWComponent, SelectionGroupMixin,
                    ImageColorSettingMixin, ImageZoomMixin):
 
-    attr_x = ContextSetting(None)
+    attr_x = ContextSetting(None, exclude_attributes=True)
     gamma = Setting(0)
 
     selection_changed = Signal()
@@ -53,13 +54,15 @@ class LineScanPlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_points = None
         self.data_imagepixels = None
 
-        self.plotview = pg.GraphicsLayoutWidget()
-
-        self.plot = pg.PlotItem(background="w", viewBox=InteractiveViewBox(self))
-        self.plotview.addItem(self.plot)
+        self.plotview = GraphicsView()
+        ci = pg.GraphicsLayout()
+        self.plot = PlotItem(viewBox=InteractiveViewBox(self))
+        self.plot.buttonsHidden = True
+        self.plotview.setCentralItem(ci)
+        ci.addItem(self.plot)
 
         self.legend = ImageColorLegend()
-        self.plotview.addItem(self.legend)
+        ci.addItem(self.legend)
 
         self.plot.scene().installEventFilter(
             HelpEventDelegate(self.help_event, self))
@@ -266,6 +269,8 @@ class OWSpectralSeries(OWWidget, SelectionOutputsMixin):
     settingsHandler = DomainContextHandler()
 
     imageplot = SettingProvider(LineScanPlot)
+
+    want_control_area = False
 
     value_type = 0  # TODO: temporary because ImagePlot uses it
 

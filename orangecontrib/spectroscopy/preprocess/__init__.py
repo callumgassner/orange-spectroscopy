@@ -29,7 +29,7 @@ from orangecontrib.spectroscopy.preprocess.utils import SelectColumn, CommonDoma
 
 
 class PCADenoisingFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _PCAReconstructCommon(CommonDomain):
@@ -79,7 +79,7 @@ class PCADenoising(Preprocess):
 
 
 class GaussianFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _GaussianCommon(CommonDomainOrderUnknowns):
@@ -131,7 +131,7 @@ class Cut(Preprocess):
 
 
 class SavitzkyGolayFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _SavitzkyGolayCommon(CommonDomainOrderUnknowns):
@@ -146,6 +146,15 @@ class _SavitzkyGolayCommon(CommonDomainOrderUnknowns):
         return savgol_filter(X, window_length=self.window,
                              polyorder=self.polyorder,
                              deriv=self.deriv, mode="nearest")
+
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and self.window == other.window \
+               and self.polyorder == other.polyorder \
+               and self.deriv == other.deriv
+
+    def __disabled_hash__(self):
+        return hash((super().__hash__(), self.window, self.polyorder, self.deriv))
 
 
 class SavitzkyGolayFiltering(Preprocess):
@@ -169,7 +178,7 @@ class SavitzkyGolayFiltering(Preprocess):
 
 
 class RubberbandBaselineFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _RubberbandBaselineCommon(CommonDomainOrder):
@@ -233,7 +242,7 @@ class RubberbandBaseline(Preprocess):
 
 
 class LinearBaselineFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _LinearBaselineCommon(CommonDomainOrderUnknowns):
@@ -276,7 +285,7 @@ class LinearBaseline(Preprocess):
 
 
 class NormalizeFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _NormalizeCommon(CommonDomain):
@@ -333,6 +342,18 @@ class _NormalizeCommon(CommonDomain):
                 replace_infs(data.X)
         return data.X
 
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and self.method == other.method \
+               and self.lower == other.lower \
+               and self.upper == other.upper \
+               and self.int_method == other.int_method \
+               and self.attr == other.attr
+
+    def __disabled_hash__(self):
+        return hash((super().__hash__(), self.method, self.lower,
+                     self.upper, self.int_method, self.attr))
+
 
 class Normalize(Preprocess):
     # Normalization methods
@@ -358,11 +379,8 @@ class Normalize(Preprocess):
 class _NormalizeReferenceCommon(CommonDomainRef):
 
     def transformed(self, data):
-        if len(data):  # numpy does not like to divide shapes (0, b) by (a, b)
-            ref_X = self.interpolate_extend_to(self.reference, getx(data))
-            return replace_infs(data.X / ref_X)
-        else:
-            return data
+        ref_X = self.interpolate_extend_to(self.reference, getx(data))
+        return replace_infs(data.X / ref_X)
 
 
 class NormalizeReference(Preprocess):
@@ -415,7 +433,7 @@ def features_with_interpolation(points, kind="linear", domain=None, handle_nans=
 
 
 class InterpolatedFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _InterpolateCommon:
@@ -443,7 +461,7 @@ class _InterpolateCommon:
             return np.ones((len(data), len(self.points))) * np.nan
         interpfn = self.interpfn
         if interpfn is None:
-            if self.handle_nans and bottleneck.anynan(ys):
+            if self.handle_nans and np.any(np.isnan(ys)):
                 if self.kind == "linear":
                     interpfn = interp1d_with_unknowns_numpy
                 else:
@@ -451,6 +469,18 @@ class _InterpolateCommon:
             else:
                 interpfn = interp1d_wo_unknowns_scipy
         return interpfn(x, ys, self.points, kind=self.kind)
+
+    def __disabled_eq__(self, other):
+        return type(self) is type(other) \
+               and np.all(self.points == other.points) \
+               and self.kind == other.kind \
+               and self.domain == other.domain \
+               and self.handle_nans == other.handle_nans \
+               and self.interpfn == other.interpfn
+
+    def __disabled_hash__(self):
+        return hash((type(self), tuple(self.points[:5]), self.kind,
+                     self.domain, self.handle_nans, self.interpfn))
 
 
 class Interpolate(Preprocess):
@@ -475,7 +505,7 @@ class Interpolate(Preprocess):
                                            self.handle_nans, interpfn=self.interpfn)
         domain = Orange.data.Domain(atts, data.domain.class_vars,
                                     data.domain.metas)
-        return data.from_table(domain, data)
+        return data.transform(domain)
 
 
 class NotAllContinuousException(Exception):
@@ -508,14 +538,14 @@ class InterpolateToDomain(Preprocess):
         domain = Orange.data.Domain(self.target.domain.attributes, data.domain.class_vars,
                                     data.domain.metas)
         data = data.transform(domain)
-        with data.unlocked(data.X):
+        with data.unlocked_reference(data.X):
             data.X = X
         return data
 
 
 ######################################### XAS normalization ##########
 class XASnormalizationFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _XASnormalizationCommon(CommonDomainOrderUnknowns):
@@ -577,7 +607,7 @@ class NoEdgejumpProvidedException(PreprocessException):
 
 
 class ExtractEXAFSFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class EdgeJumpException(PreprocessException):
@@ -701,7 +731,7 @@ class ExtractEXAFS(Preprocess):
 
 
 class CurveShiftFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _CurveShiftCommon(CommonDomain):
@@ -729,7 +759,7 @@ class CurveShift(Preprocess):
 
 
 class DespikeFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _DespikeCommon(CommonDomainOrderUnknowns):
@@ -807,7 +837,7 @@ class Despike(Preprocess):
 
 
 class SpSubtractFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _SpSubtractCommon(CommonDomainRef):
@@ -817,12 +847,9 @@ class _SpSubtractCommon(CommonDomainRef):
         self.amount = amount
 
     def transformed(self, data):
-        if len(data):  # numpy does not like to divide shapes (0, b) by (a, b)
-            ref_X = self.interpolate_extend_to(self.reference, getx(data))
-            result = data.X - self.amount * ref_X
-            return result
-        else:
-            return data
+        ref_X = self.interpolate_extend_to(self.reference, getx(data))
+        result = data.X - self.amount * ref_X
+        return result
 
 
 class SpSubtract(Preprocess):

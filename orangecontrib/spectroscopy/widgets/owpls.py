@@ -22,13 +22,13 @@ class OWPLS(OWBaseLearner):
 
     class Outputs(OWBaseLearner.Outputs):
         coefsdata = Output("Coefficients", Table, explicit=True)
+        transformed = Output("Transformed Data", Table)
+        components = Output("Components", Table)
 
     class Warning(OWBaseLearner.Warning):
         sparse_data = Msg('Sparse input data: default preprocessing is to scale it.')
 
-    #: number of components
     n_components = Setting(2)
-    #: whether or not to limit number of iterations
     max_iter = Setting(500)
 
     def add_main_layout(self):
@@ -50,19 +50,35 @@ class OWPLS(OWBaseLearner):
     def update_model(self):
         super().update_model()
         coef_table = None
+        projection = None
+        components = None
         if self.model is not None:
-            domain = Domain(
-                [ContinuousVariable("coef")], metas=[StringVariable("name")])
-            coefs = list(self.model.coefficients)
-            waves = [[attr.name] for attr in self.model.domain.attributes]
-            coef_table = Table.from_numpy(domain, X=list(coefs), metas=waves)
-            coef_table.name = "coefficients"
+            coef_table = self.model.coefficients_table()
+            projection = self.model.project(self.data)
+            components = self.model.components()
         self.Outputs.coefsdata.send(coef_table)
+        self.Outputs.transformed.send(projection)
+        self.Outputs.components.send(components)
 
     @OWBaseLearner.Inputs.data
     def set_data(self, data):
+        # reimplemented completely because the base learner does not
+        # allow multiclass
+
         self.Warning.sparse_data.clear()
-        super().set_data(data)
+
+        self.Error.data_error.clear()
+        self.data = data
+
+        if data is not None and data.domain.class_var is None and not data.domain.class_vars:
+            self.Error.data_error(
+                "Data has no target variable.\n"
+                "Select one with the Select Columns widget.")
+            self.data = None
+
+        # invalidate the model so that handleNewSignals will update it
+        self.model = None
+
         if self.data and sp.issparse(self.data.X):
             self.Warning.sparse_data()
 

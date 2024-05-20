@@ -17,6 +17,7 @@ class OWSNR(OWWidget):
         "Calculates Signal-to-Noise Ratio (SNR), Averages or Standard Deviation by coordinates.")
 
     icon = "icons/snr.svg"
+    keywords = ["signal", "noise", "standard", "deviation", "average"]
 
     # Define inputs and outputs
     class Inputs:
@@ -30,8 +31,10 @@ class OWSNR(OWWidget):
                    'Standard Deviation': 2} # std
 
     settingsHandler = settings.DomainContextHandler()
-    group_x = settings.ContextSetting(None)
-    group_y = settings.ContextSetting(None)
+    group_x = settings.ContextSetting(None, exclude_attributes=True,
+                                      exclude_class_vars=True)
+    group_y = settings.ContextSetting(None, exclude_attributes=True,
+                                      exclude_class_vars=True)
     out_choiced = settings.Setting(0)
 
     autocommit = settings.Setting(True)
@@ -114,7 +117,7 @@ class OWSNR(OWWidget):
         with new_table.unlocked():
             for var in cont_vars:
                 index = data_table.domain.index(var)
-                col, _ = data_table.get_column_view(index)
+                col = data_table.get_column(index)
                 val = var.to_val(new_table[0, var])
                 if not np.all(col == val):
                     new_table[0, var] = Orange.data.Unknown

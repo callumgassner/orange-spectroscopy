@@ -1,6 +1,8 @@
 from collections.abc import Iterable
 import random
 import time
+import traceback
+import sys
 
 import numpy as np
 
@@ -16,7 +18,6 @@ from Orange.widgets.data.owpreprocess import (
 )
 from Orange.widgets.utils.sql import check_sql_input
 from Orange.widgets.utils.overlay import OverlayWidget
-from Orange.widgets.utils.colorpalette import DefaultColorBrewerPalette
 from Orange.widgets.utils.concurrent import TaskState, ConcurrentWidgetMixin, ConcurrentMixin
 
 from AnyQt.QtCore import (
@@ -40,7 +41,9 @@ from orangecontrib.spectroscopy.widgets.preprocessors.utils import REFERENCE_DAT
 from orangecontrib.spectroscopy.widgets.preprocessors.registry import preprocess_editors
 
 
-PREVIEW_COLORS = [QColor(*a).name() for a in DefaultColorBrewerPalette[8]]
+BREWER_PALETTE8 = [(127, 201, 127), (190, 174, 212), (253, 192, 134), (255, 255, 153),
+                   (56, 108, 176), (240, 2, 127), (191, 91, 23), (102, 102, 102)]
+PREVIEW_COLORS = [QColor(*a).name() for a in BREWER_PALETTE8]
 
 
 class ViewController(Controller):
@@ -445,6 +448,7 @@ class SpectralPreprocess(OWWidget, ConcurrentWidgetMixin, openclass=True):
     _max_preview_spectra = 10
 
     class Error(OWWidget.Error):
+        loading = Msg("Error when loading preprocessors. {}")
         applying = Msg("Preprocessing error. {}")
         preview = Msg("Preview error. {}")
         preprocessor = Msg("Preprocessor error: see the widget for details.")
@@ -639,7 +643,12 @@ class SpectralPreprocess(OWWidget, ConcurrentWidgetMixin, openclass=True):
 
         try:
             model = self.load(self.storedsettings)
-        except Exception:
+        except Exception as ex:
+            # open Orange's report window so that users can report the problem
+            sys.excepthook(type(ex), ex, ex.__traceback__)
+            # show an error with the same content
+            self.Error.loading(traceback.format_exc())
+            # allow the widget to work
             model = self.load({})
 
         self.set_model(model)
@@ -728,6 +737,7 @@ class SpectralPreprocess(OWWidget, ConcurrentWidgetMixin, openclass=True):
         self.commit.now()
 
     def add_preprocessor(self, action):
+        self.Error.loading.clear()
         item = QStandardItem()
         item.setData({}, ParametersRole)
         item.setData(action.description.title, Qt.DisplayRole)
@@ -853,7 +863,7 @@ class OWPreprocess(SpectralPreprocessReference):
     replaces = ["orangecontrib.infrared.widgets.owpreproc.OWPreprocess",
                 "orangecontrib.infrared.widgets.owpreprocess.OWPreprocess"]
 
-    settings_version = 8
+    settings_version = 9
 
     BUTTON_ADD_LABEL = "Add preprocessor..."
     editor_registry = preprocess_editors
@@ -945,6 +955,12 @@ class OWPreprocess(SpectralPreprocessReference):
             new_ranges = [[l, r, w, 0.0] for l, r, w in ranges]
             settings["ranges"] = new_ranges
             version = 7
+        if name == "orangecontrib.infrared.cut":
+            name = "orangecontrib.spectroscopy.cut"
+            settings["inverse"] = False
+        if name == "orangecontrib.infrared.cutinverse":
+            name = "orangecontrib.spectroscopy.cut"
+            settings["inverse"] = True
         return [((name, settings), version)]
 
     @classmethod

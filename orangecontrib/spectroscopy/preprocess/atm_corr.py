@@ -1,5 +1,6 @@
 import numpy as np
-from scipy.signal import savgol_filter, tukey
+from scipy.signal import savgol_filter
+from scipy.signal.windows import tukey
 from scipy.interpolate import interp1d
 
 import Orange

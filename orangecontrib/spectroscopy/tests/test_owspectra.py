@@ -1,7 +1,15 @@
 import os
+import unittest
 from unittest.mock import Mock, patch
 
+try:
+    import dask
+    from Orange.tests.test_dasktable import temp_dasktable
+except ImportError:
+    dask = None
+
 from AnyQt.QtCore import QRectF, Qt
+from AnyQt.QtGui import QFont
 from AnyQt.QtTest import QSignalSpy
 import numpy as np
 import pyqtgraph as pg
@@ -10,7 +18,7 @@ from Orange.widgets.tests.base import WidgetTest
 from Orange.data import Table, Domain, ContinuousVariable, DiscreteVariable
 
 from orangecontrib.spectroscopy.widgets.owspectra import OWSpectra, MAX_INSTANCES_DRAWN, \
-    PlotCurvesItem, NoSuchCurve, MAX_THICK_SELECTED
+    PlotCurvesItem, NoSuchCurve, MAX_THICK_SELECTED, CurvePlot
 from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.widgets.line_geometry import intersect_curves, \
     distance_line_segment
@@ -22,9 +30,12 @@ NAN = float("nan")
 
 
 def wait_for_graph(widget, timeout=5000):
-    concurrent = widget.curveplot.show_average_thread
-    if concurrent.task is not None:
-        spy = QSignalSpy(concurrent.average_shown)
+    if not isinstance(widget, CurvePlot):
+        widget = widget.curveplot
+    av = widget.show_average_thread
+    ind = widget.show_individual_thread
+    if av.task is not None or ind.task is not None:
+        spy = QSignalSpy(widget.graph_shown)
         assert spy.wait(timeout), "Failed to update graph in the specified timeout"
 
 
@@ -80,6 +91,7 @@ class TestOWSpectra(WidgetTest):
         mi = "orangecontrib.spectroscopy.widgets.owspectra.MAX_INSTANCES_DRAWN"
         with patch(mi, 100):
             self.send_signal("Data", self.unknown_last_instance)
+            wait_for_graph(self.widget)
             self.assertTrue(np.all(np.isnan(self.unknown_last_instance[self.widget.curveplot.sampled_indices].X[-1])))
 
     def do_mousemove(self):
@@ -115,6 +127,7 @@ class TestOWSpectra(WidgetTest):
     def test_mouse_move(self):
         for data in self.normal_data + self.strange_data:
             self.send_signal("Data", data)
+            wait_for_graph(self.widget)
             self.do_mousemove()
 
     def test_rescale_y(self):
@@ -142,6 +155,7 @@ class TestOWSpectra(WidgetTest):
     def test_select_line(self):
         for data in self.normal_data:
             self.send_signal("Data", data)
+            wait_for_graph(self.widget)
             out = self.get_output("Selection")
             self.assertIsNone(out, None)
             out = self.get_output(self.widget.Outputs.annotated_data)
@@ -191,10 +205,13 @@ class TestOWSpectra(WidgetTest):
     def test_information(self):
         assert len(self.titanic) > MAX_INSTANCES_DRAWN
         self.send_signal("Data", self.titanic[:MAX_INSTANCES_DRAWN])
+        wait_for_graph(self.widget)
         self.assertFalse(self.widget.Information.showing_sample.is_shown())
         self.send_signal("Data", self.titanic)
+        wait_for_graph(self.widget)
         self.assertTrue(self.widget.Information.showing_sample.is_shown())
         self.send_signal("Data", self.titanic[:MAX_INSTANCES_DRAWN])
+        wait_for_graph(self.widget)
         self.assertFalse(self.widget.Information.showing_sample.is_shown())
 
     def test_information_average_mode(self):
@@ -207,12 +224,14 @@ class TestOWSpectra(WidgetTest):
 
     def test_handle_floatname(self):
         self.send_signal("Data", self.collagen)
+        wait_for_graph(self.widget)
         x, _ = self.widget.curveplot.curves[0]
         fs = sorted([float(f.name) for f in self.collagen.domain.attributes])
         np.testing.assert_equal(x, fs)
 
     def test_handle_nofloatname(self):
         self.send_signal("Data", self.iris)
+        wait_for_graph(self.widget)
         x, _ = self.widget.curveplot.curves[0]
         np.testing.assert_equal(x, range(len(self.iris.domain.attributes)))
 
@@ -222,22 +241,16 @@ class TestOWSpectra(WidgetTest):
 
         self.send_signal("Data", self.iris)
         curves_plotted = self.widget.curveplot.curves_plotted
+        wait_for_graph(self.widget)
         self.assertEqual(numcurves(curves_plotted), 150)
         self.widget.curveplot.show_average()
         wait_for_graph(self.widget)
         curves_plotted = self.widget.curveplot.curves_plotted
         self.assertEqual(numcurves(curves_plotted), 3)
         self.widget.curveplot.show_individual()
+        wait_for_graph(self.widget)
         curves_plotted = self.widget.curveplot.curves_plotted
         self.assertEqual(numcurves(curves_plotted), 150)
-
-    def test_limits(self):
-        self.send_signal("Data", self.iris)
-        vr = self.widget.curveplot.plot.viewRect()
-        # there should ne no change
-        self.widget.curveplot.set_limits()
-        vr2 = self.widget.curveplot.plot.viewRect()
-        self.assertEqual(vr, vr2)
 
     def test_line_intersection(self):
         data = self.collagen
@@ -246,7 +259,7 @@ class TestOWSpectra(WidgetTest):
         x = x[sort]
         ys = data.X[:, sort]
         boola = intersect_curves(x, ys, np.array([0, 1.15]), np.array([3000, 1.15]))
-        intc = np.flatnonzero(boola)
+        intc = np.asarray(np.flatnonzero(boola))
         np.testing.assert_equal(intc, [191, 635, 638, 650, 712, 716, 717, 726])
 
     def test_line_point_distance(self):
@@ -273,18 +286,21 @@ class TestOWSpectra(WidgetTest):
         assert len(data) > MAX_INSTANCES_DRAWN
 
         self.send_signal("Data", data)
+        wait_for_graph(self.widget)
         sinds = self.widget.curveplot.sampled_indices
         self.assertEqual(len(sinds), MAX_INSTANCES_DRAWN)
 
         # the whole subset is drawn
         add_subset = data[:MAX_INSTANCES_DRAWN]
         self.send_signal("Data subset", add_subset)
+        wait_for_graph(self.widget)
         sinds = self.widget.curveplot.sampled_indices
         self.assertTrue(set(add_subset.ids) <= set(data[sinds].ids))
 
         # the whole subset can not be drawn anymore
         add_subset = data[:MAX_INSTANCES_DRAWN+1]
         self.send_signal("Data subset", add_subset)
+        wait_for_graph(self.widget)
         sinds = self.widget.curveplot.sampled_indices
         self.assertFalse(set(add_subset.ids) <= set(data[sinds].ids))
 
@@ -313,7 +329,7 @@ class TestOWSpectra(WidgetTest):
         self.assertEqual(self.widget.curveplot.feature_color, None)
         self.widget.curveplot.feature_color = self.iris.domain.class_var
         iris_context = self.widget.settingsHandler.pack_data(self.widget)["context_settings"]
-        self.send_signal("Data", Table("housing"))
+        self.send_signal("Data", self.titanic)
         self.assertEqual(self.widget.curveplot.feature_color, None)
         # because previous settings match any domain, use only context for iris
         self.widget = self.create_widget(OWSpectra,
@@ -354,6 +370,7 @@ class TestOWSpectra(WidgetTest):
     def test_selection_changedata(self):
         # select something in the widget and see if it is cleared
         self.send_signal("Data", self.iris)
+        wait_for_graph(self.widget)
         self.widget.curveplot.MOUSE_RADIUS = 1000
         self.widget.curveplot.mouse_moved_closest(
             (self.widget.curveplot.plot.sceneBoundingRect().center(),))
@@ -362,10 +379,12 @@ class TestOWSpectra(WidgetTest):
         self.assertEqual(len(out), 1)
         # resending the exact same data should not change the selection
         self.send_signal("Data", self.iris)
+        wait_for_graph(self.widget)
         out2 = self.get_output("Selection")
         self.assertEqual(len(out), 1)
         # while resending the same data as a different object should
-        self.send_signal("Data", Table("iris"))
+        self.send_signal("Data", self.iris.copy())
+        wait_for_graph(self.widget)
         out = self.get_output("Selection")
         self.assertIsNone(out, None)
 
@@ -373,11 +392,11 @@ class TestOWSpectra(WidgetTest):
         data = self.collagen[:100]
         self.send_signal("Data", data)
         self.widget.curveplot.make_selection([1])
-        with hold_modifiers(self.widget, Qt.ControlModifier):
+        with hold_modifiers(self.widget, Qt.ShiftModifier):
             self.widget.curveplot.make_selection([2])
         with hold_modifiers(self.widget, Qt.ShiftModifier):
             self.widget.curveplot.make_selection([3])
-        with hold_modifiers(self.widget, Qt.ShiftModifier | Qt.ControlModifier):
+        with hold_modifiers(self.widget, Qt.ControlModifier):
             self.widget.curveplot.make_selection([4])
         out = self.get_output(self.widget.Outputs.annotated_data)
         self.assertEqual(len(out), 100)  # have a data table at the output
@@ -406,6 +425,7 @@ class TestOWSpectra(WidgetTest):
         data = self.collagen[:100]
         assert MAX_INSTANCES_DRAWN >= len(data) > MAX_THICK_SELECTED
         self.send_signal("Data", data)
+        wait_for_graph(self.widget)
         self.widget.curveplot.make_selection(list(range(MAX_THICK_SELECTED)))
         self.assertEqual(2, self.widget.curveplot.pen_selected[None].width())
         self.widget.curveplot.make_selection(list(range(MAX_THICK_SELECTED + 1)))
@@ -418,6 +438,7 @@ class TestOWSpectra(WidgetTest):
         assert MAX_INSTANCES_DRAWN >= len(data) > MAX_THICK_SELECTED
         threshold = MAX_THICK_SELECTED
         self.send_signal("Data", data)
+        wait_for_graph(self.widget)
         set_curve_pens = 'orangecontrib.spectroscopy.widgets.owspectra.CurvePlot.set_curve_pens'
         with patch(set_curve_pens, Mock()) as m:
 
@@ -443,7 +464,7 @@ class TestOWSpectra(WidgetTest):
             self.assertEqual(threshold + 1, clen())  # redraw curves as thick
 
     def test_unknown_feature_color(self):
-        data = Table("iris")
+        data = self.iris
         with data.unlocked():
             data[0][data.domain.class_var] = np.nan
         self.send_signal("Data", data)
@@ -456,6 +477,7 @@ class TestOWSpectra(WidgetTest):
         data = self.iris[:10]
         curveplot = self.widget.curveplot
         self.send_signal("Data", data)
+        wait_for_graph(self.widget)
         self.assertIsNone(curveplot.highlighted)
 
         m = Mock()
@@ -486,14 +508,17 @@ class TestOWSpectra(WidgetTest):
         curveplot = self.widget.curveplot
         curveplot.set_data(self.iris[:3], auto_update=False)
         curveplot.update_view()
+        wait_for_graph(self.widget)
         self.assertEqual(3, len(curveplot.curves[0][1]))
         curveplot.set_data(self.iris[:3], auto_update=False)
         self.assertEqual([], curveplot.curves)
         curveplot.update_view()
+        wait_for_graph(self.widget)
         self.assertEqual(3, len(curveplot.curves[0][1]))
 
     def test_save_graph(self):
         self.send_signal("Data", self.iris)
+        wait_for_graph(self.widget)
         with set_png_graph_save() as fname:
             self.widget.save_graph()
             self.assertGreater(os.path.getsize(fname), 10000)
@@ -501,6 +526,7 @@ class TestOWSpectra(WidgetTest):
     def test_peakline_keep_precision(self):
         self.widget.curveplot.add_peak_label()  # precision 1 (no data)
         self.send_signal("Data", self.collagen)
+        wait_for_graph(self.widget)
         self.widget.curveplot.add_peak_label()  # precision 2 (data range is collagen)
         label_text = self.widget.curveplot.peak_labels[0].label.textItem.toPlainText()
         label_text2 = self.widget.curveplot.peak_labels[1].label.textItem.toPlainText()
@@ -514,6 +540,7 @@ class TestOWSpectra(WidgetTest):
     def test_peakline_remove(self):
         self.widget.curveplot.add_peak_label()
         self.send_signal("Data", self.collagen)
+        wait_for_graph(self.widget)
         self.widget.curveplot.add_peak_label()
         self.widget.curveplot.peak_labels[0].request_deletion()
         self.assertEqual(len(self.widget.curveplot.peak_labels), 1)
@@ -529,13 +556,27 @@ class TestOWSpectra(WidgetTest):
             self.assertTrue(np.isfinite(obj.yData).all())
             self.assertTrue(np.isfinite(obj.xData).all())
 
+    def test_waterfall(self):
+        self.send_signal("Data", self.iris)
+        vb = self.widget.curveplot.plot.vb
+        self.widget.curveplot.waterfall = False
+        self.widget.curveplot.update_view()
+        wait_for_graph(self.widget)
+        self.assertTrue(vb.targetRect().bottom() < 10)
+        self.widget.curveplot.waterfall_changed()
+        wait_for_graph(self.widget)
+        self.assertTrue(vb.targetRect().bottom() < 1000)
+        self.assertTrue(vb.targetRect().bottom() > 800)
+
     def test_migrate_context_feature_color(self):
-        c = self.widget.settingsHandler.new_context(self.iris.domain,
-                                                    None, self.iris.domain.class_vars)
+        # avoid class_vars in tests, because the setting does not allow them
+        iris = self.iris.transform(
+            Domain(self.iris.domain.attributes, None, self.iris.domain.class_vars))
+        c = self.widget.settingsHandler.new_context(iris.domain, None, iris.domain.metas)
         c.values["curveplot"] = {"feature_color": ("iris", 1)}
         self.widget = self.create_widget(OWSpectra,
                                          stored_settings={"context_settings": [c]})
-        self.send_signal("Data", self.iris)
+        self.send_signal("Data", iris)
         self.assertIsInstance(self.widget.curveplot.feature_color, DiscreteVariable)
 
     def test_compat_no_group(self):
@@ -554,3 +595,124 @@ class TestOWSpectra(WidgetTest):
         self.assertTrue(self.widget.compat_no_group)
         # We decided to remove the info box
         # self.assertTrue(self.widget.Information.compat_no_group.is_shown())
+
+    def test_visual_settings(self, timeout=5):
+        graph = self.widget.curveplot
+        font = QFont()
+        font.setItalic(True)
+        font.setFamily("Helvetica")
+
+        self.send_signal(self.widget.Inputs.data, self.iris)
+        self.wait_until_finished(timeout=timeout)
+        graph.cycle_color_attr()
+        self.assertEqual(graph.feature_color, self.iris.domain.class_var)
+
+        key, value = ("Fonts", "Font family", "Font family"), "Helvetica"
+        self.widget.set_visual_settings(key, value)
+
+        key, value = ("Fonts", "Title", "Font size"), 20
+        self.widget.set_visual_settings(key, value)
+        key, value = ("Fonts", "Title", "Italic"), True
+        self.widget.set_visual_settings(key, value)
+        font.setPointSize(20)
+        self.assertFontEqual(graph.parameter_setter.title_item.item.font(), font)
+
+        key, value = ("Fonts", "Axis title", "Font size"), 14
+        self.widget.set_visual_settings(key, value)
+        key, value = ("Fonts", "Axis title", "Italic"), True
+        self.widget.set_visual_settings(key, value)
+        font.setPointSize(14)
+        for ax in ["bottom", "left"]:
+            axis = graph.parameter_setter.getAxis(ax)
+            self.assertFontEqual(axis.label.font(), font)
+
+        key, value = ('Fonts', 'Axis ticks', 'Font size'), 15
+        self.widget.set_visual_settings(key, value)
+        key, value = ('Fonts', 'Axis ticks', 'Italic'), True
+        self.widget.set_visual_settings(key, value)
+        font.setPointSize(15)
+        for ax in ["bottom", "left"]:
+            axis = graph.parameter_setter.getAxis(ax)
+            self.assertFontEqual(axis.style["tickFont"], font)
+
+        key, value = ("Fonts", "Legend", "Font size"), 16
+        self.widget.set_visual_settings(key, value)
+        key, value = ("Fonts", "Legend", "Italic"), True
+        self.widget.set_visual_settings(key, value)
+        font.setPointSize(16)
+        legend_item = list(graph.parameter_setter.legend_items)[0]
+        self.assertFontEqual(legend_item[1].item.font(), font)
+
+        key, value = ("Annotations", "Title", "Title"), "Foo"
+        self.widget.set_visual_settings(key, value)
+        self.assertEqual(graph.parameter_setter.title_item.item.toPlainText(), "Foo")
+        self.assertEqual(graph.parameter_setter.title_item.text, "Foo")
+
+        key, value = ("Annotations", "x-axis title", "Title"), "Foo2"
+        self.widget.set_visual_settings(key, value)
+        axis = graph.parameter_setter.getAxis("bottom")
+        self.assertEqual(axis.label.toPlainText().strip(), "Foo2")
+        self.assertEqual(axis.labelText, "Foo2")
+
+        key, value = ("Annotations", "y-axis title", "Title"), "Foo3"
+        self.widget.set_visual_settings(key, value)
+        axis = graph.parameter_setter.getAxis("left")
+        self.assertEqual(axis.label.toPlainText().strip(), "Foo3")
+        self.assertEqual(axis.labelText, "Foo3")
+
+        self.assertFalse(self.widget.Information.view_locked.is_shown())
+        key, value = ("View Range", "X", "xMin"), 1.
+        self.widget.set_visual_settings(key, value)
+        key, value = ("View Range", "X", "xMax"), 3.
+        self.widget.set_visual_settings(key, value)
+        vr = graph.plot.vb.viewRect()
+        self.assertEqual(vr.left(), 1)
+        self.assertEqual(vr.right(), 3)
+        self.assertTrue(self.widget.Information.view_locked.is_shown())
+
+        key, value = ("View Range", "Y", "yMin"), 2.
+        self.widget.set_visual_settings(key, value)
+        key, value = ("View Range", "Y", "yMax"), 42.
+        self.widget.set_visual_settings(key, value)
+        vr = graph.plot.vb.viewRect()
+        self.assertEqual(vr.top(), 2)
+        self.assertEqual(vr.bottom(), 42)
+
+    def assertFontEqual(self, font1, font2):
+        self.assertEqual(font1.family(), font2.family())
+        self.assertEqual(font1.pointSize(), font2.pointSize())
+        self.assertEqual(font1.italic(), font2.italic())
+
+    def test_migrate_visual_setttings(self):
+        settings = {"curveplot":
+                        {"label_title": "title",
+                         "label_xaxis": "x",
+                         "label_yaxis": "y"}
+                    }
+        OWSpectra.migrate_settings(settings, 4)
+        self.assertEqual(settings["visual_settings"],
+                         {('Annotations', 'Title', 'Title'): 'title',
+                          ('Annotations', 'x-axis title', 'Title'): 'x',
+                          ('Annotations', 'y-axis title', 'Title'): 'y'})
+        settings = {}
+        OWSpectra.migrate_settings(settings, 4)
+        self.assertNotIn("visual_settings", settings)
+
+
+@unittest.skipUnless(dask, "installed Orange does not support dask")
+class TestOWSpectraWithDask(TestOWSpectra):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.iris = temp_dasktable("iris")
+        cls.titanic = temp_dasktable("titanic")
+        cls.collagen = temp_dasktable("collagen")
+        cls.normal_data = [temp_dasktable(d) for d in cls.normal_data]
+        cls.unknown_last_instance = temp_dasktable(cls.unknown_last_instance)
+        cls.unknown_pts = temp_dasktable(cls.unknown_pts)
+        cls.only_inf = temp_dasktable(cls.only_inf)
+        cls.strange_data = [temp_dasktable(d) for d in cls.strange_data]
+
+
+if __name__ == "__main__":
+    unittest.main()

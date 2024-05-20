@@ -1,37 +1,68 @@
 import numpy as np
 
 import Orange
+from Orange.data import Table
 from Orange.preprocess.preprocess import Preprocess
 from Orange.data.util import get_unique_names
 
-from orangecontrib.spectroscopy.data import getx, spectra_mean
+from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.preprocess.utils import SelectColumn, CommonDomainOrderUnknowns, \
-    interp1d_with_unknowns_numpy, nan_extend_edges_and_interpolate, MissingReferenceException
+    interp1d_with_unknowns_numpy, MissingReferenceException, interpolate_extend_to, \
+    CommonDomainRef, table_eq_x, subset_for_hash
 from orangecontrib.spectroscopy.preprocess.npfunc import Function, Segments
 
 
-class SelectionFunction(Segments):
+class SelectionFunction(Function):
     """
     Weighted selection function. Includes min and max.
     """
     def __init__(self, min_, max_, w):
-        super().__init__((lambda x: True,
-                          lambda x: 0),
-                         (lambda x: np.logical_and(x >= min_, x <= max_),
-                          lambda x: w))
+        super().__init__(None)
+        self.min_ = min_
+        self.max_ = max_
+        self.w = w
+
+    def __call__(self, x):
+        seg = Segments((lambda x: True, lambda x: 0),
+                       (lambda x: np.logical_and(x >= self.min_, x <= self.max_),
+                        lambda x: self.w)
+                       )
+        return seg(x)
+
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and self.min_ == other.min_ \
+               and self.max_ == other.max_ \
+               and self.w == other.w
+
+    def __disabled_hash__(self):
+        return hash((super().__hash__(), self.min_, self.max_, self.w))
 
 
-class SmoothedSelectionFunction(Segments):
+class SmoothedSelectionFunction(SelectionFunction):
     """
     Weighted selection function. Min and max points are middle
     points of smoothing with hyperbolic tangent.
     """
     def __init__(self, min_, max_, s, w):
-        middle = (min_ + max_) / 2
-        super().__init__((lambda x: x < middle,
-                          lambda x: (np.tanh((x - min_) / s) + 1) / 2 * w),
-                         (lambda x: x >= middle,
-                          lambda x: (-np.tanh((x - max_) / s) + 1) / 2 * w))
+        super().__init__(min_, max_, w)
+        self.s = s
+
+    def __call__(self, x):
+        middle = (self.min_ + self.max_) / 2
+        seg = Segments((lambda x: x < middle,
+                        lambda x: (np.tanh((x - self.min_) / self.s) + 1) / 2 * self.w),
+                       (lambda x: x >= middle,
+                        lambda x: (-np.tanh((x - self.max_) / self.s) + 1) / 2 * self.w)
+                       )
+        return seg(x)
+
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and self.s == other.s
+
+    def __disabled_hash__(self):
+        return hash((super().__hash__(), self.s))
 
 
 def weighted_wavenumbers(weights, wavenumbers):
@@ -54,18 +85,19 @@ def weighted_wavenumbers(weights, wavenumbers):
 
 
 class EMSCFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class EMSCModel(SelectColumn):
-    pass
+    InheritEq = True
 
 
-class _EMSC(CommonDomainOrderUnknowns):
+class _EMSC(CommonDomainOrderUnknowns, CommonDomainRef):
 
     def __init__(self, reference, badspectra, weights, order, scaling, domain):
-        super().__init__(domain)
-        self.reference = reference
+        CommonDomainOrderUnknowns.__init__(self, domain)
+        CommonDomainRef.__init__(self, reference, domain)
+        assert len(self.reference) == 1
         self.badspectra = badspectra
         self.weights = weights
         self.order = order
@@ -74,17 +106,7 @@ class _EMSC(CommonDomainOrderUnknowns):
     def transformed(self, X, wavenumbers):
         # wavenumber have to be input as sorted
         # about 85% of time in __call__ function is spent is lstsq
-        # compute average spectrum from the reference
-        ref_X = np.atleast_2d(spectra_mean(self.reference.X))
-
-        def interpolate_to_data(other_xs, other_data):
-            # all input data needs to be interpolated (and NaNs removed)
-            interpolated = interp1d_with_unknowns_numpy(other_xs, other_data, wavenumbers)
-            # we know that X is not NaN. same handling of reference as of X
-            interpolated, _ = nan_extend_edges_and_interpolate(wavenumbers, interpolated)
-            return interpolated
-
-        ref_X = interpolate_to_data(getx(self.reference), ref_X)
+        ref_X = interpolate_extend_to(self.reference, wavenumbers)
         wei_X = weighted_wavenumbers(self.weights, wavenumbers)
 
         N = wavenumbers.shape[0]
@@ -93,7 +115,7 @@ class _EMSC(CommonDomainOrderUnknowns):
 
         n_badspec = len(self.badspectra) if self.badspectra is not None else 0
         if self.badspectra:
-            badspectra_X = interpolate_to_data(getx(self.badspectra), self.badspectra.X)
+            badspectra_X = interpolate_extend_to(self.badspectra, wavenumbers)
 
         M = []
         for x in range(0, self.order+1):
@@ -122,6 +144,27 @@ class _EMSC(CommonDomainOrderUnknowns):
 
         return newspectra
 
+    def __disabled_eq__(self, other):
+        return CommonDomainRef.__eq__(self, other) \
+            and table_eq_x(self.badspectra, other.badspectra) \
+            and self.order == other.order \
+            and self.scaling == other.scaling \
+            and (self.weights == other.weights
+                 if not isinstance(self.weights, Table)
+                 else table_eq_x(self.weights, other.weights))
+
+    def __disabled_hash__(self):
+        domain = self.badspectra.domain if self.badspectra is not None else None
+        fv = subset_for_hash(self.badspectra.X) if self.badspectra is not None else None
+        weights = self.weights if not isinstance(self.weights, Table) \
+            else subset_for_hash(self.weights.X)
+        return hash((CommonDomainRef.__hash__(self), domain, fv, weights, self.order, self.scaling))
+
+
+def average_table_x(data):
+    return Orange.data.Table.from_numpy(Orange.data.Domain(data.domain.attributes),
+                                        X=data.X.mean(axis=0, keepdims=True))
+
 
 class EMSC(Preprocess):
 
@@ -132,6 +175,8 @@ class EMSC(Preprocess):
         if reference is None:
             raise MissingReferenceException()
         self.reference = reference
+        if len(self.reference) > 1:
+            self.reference = average_table_x(self.reference)
         self.badspectra = badspectra
         self.weights = weights
         self.order = order

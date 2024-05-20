@@ -44,26 +44,18 @@ BUILD PACKAGES
 
 Continue only if conda-build ended without errors!
 
-Push it to github, push also tags:
+Push it to GitHub, push also tags:
 
     git push upstream master
     git push upstream --tags
 
-Now, other packages. First build help:
-
-    cd doc && make htmlhelp && cd ..
-
-Build pypi packages:
-
-    python setup.py sdist bdist_wheel
+Create a release on GitHub. Packages should be built and uploaded to PyPi automatically.
 
 
 UPLOAD PACKAGES
 ---------------
 
-Upload to pypi:
-
-    twine upload dist/packagenames (there are two, .tar.gz and .whl).
+Package is uploaded to PyPi automatically.
 
 Copy the built conda package to the correct static/conda/noarch folder in 
 the quasar.codes web page. Add the new files and then either push or 

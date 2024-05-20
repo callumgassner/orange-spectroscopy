@@ -1,6 +1,6 @@
 import numpy as np
 
-from PyQt5.QtWidgets import QVBoxLayout, QLabel, QFormLayout, QBoxLayout
+from AnyQt.QtWidgets import QVBoxLayout, QLabel, QFormLayout, QBoxLayout
 
 from Orange.widgets import gui
 from orangecontrib.spectroscopy.preprocess.me_emsc import ME_EMSC
@@ -59,7 +59,7 @@ class MeEMSCEditor(EMSCEditor):
         form_set = QFormLayout()
         self.controlArea.layout().addLayout(form_set)
 
-        bint = QBoxLayout(0)
+        bint = QBoxLayout(QBoxLayout.LeftToRight)
         low = lineEditFloatRange(self, self, "n0_low", bottom=1.1, top=3,
                                  callback=self.edited.emit)
         low.sizeHintFactor = 0.4
@@ -70,7 +70,7 @@ class MeEMSCEditor(EMSCEditor):
         bint.addWidget(high)
         form_set.addRow("Refractive index", bint)
 
-        bint = QBoxLayout(0)
+        bint = QBoxLayout(QBoxLayout.LeftToRight)
         low = lineEditFloatRange(self, self, "a_low", bottom=2, top=50,
                                  callback=self.edited.emit)
         low.sizeHintFactor = 0.4

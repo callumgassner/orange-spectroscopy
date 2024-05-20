@@ -1,7 +1,8 @@
+import math
 import os
 from functools import reduce
 from itertools import chain, count, repeat
-from collections import Counter, namedtuple
+from collections import Counter, namedtuple, defaultdict
 from typing import List
 
 import numpy as np
@@ -41,6 +42,49 @@ def numpy_union_keep_order(A, B):
     return np.concatenate((A, to_add))
 
 
+def decimals_neeeded_for_unique_str(l):
+    min_diff = min(np.abs(np.diff(sorted(l))))
+    log_diff = math.log(min_diff, 10)
+    # We need to avoid possible degenerate cases like (1.5, 2.5):
+    # the log of the difference (1.0) is 0, but rounded to zero
+    # decimals we would get (2, 2) due to floating point rounding behavior.
+    # Therefore, slightly increase the number of needed decimals.
+    # The number was selected such that (1.5, 2.5) returned 1 decimal,
+    # and (1.49, 2.51) returned 0.
+    log_diff = log_diff - 0.008
+    decimals = max(0, math.ceil(-log_diff))
+    return decimals
+
+
+def wns_to_unique_str(l):
+    """ Convert a list on wns to a list of unique strings.
+
+    Use 6 decimal places by default. If that is not sufficient,
+    increase precision as needed for wns in conflict.
+    """
+
+    # 6 used to be the default: "%f" means "%0.6f"
+    default_decimals = 6
+    default_format = "%0." + str(default_decimals) + "f"
+
+    same = defaultdict(list)
+    for wn in l:
+        same[default_format % wn].append(wn)
+
+    decimals = {}
+    for n in same:
+        if len(same[n]) == 1:
+            decimals[n] = default_decimals
+        else:
+            # add one decimal place because without it the error could be too big
+            # for example, (1.49, 2.51) would round to 1 and 3, with an added decimal
+            # it will show (1.5, 2.5). Max error before was 0.5*last_decimal_place,
+            # which seems too big.
+            decimals[n] = decimals_neeeded_for_unique_str(same[n]) + 1
+
+    return [("%0." + str(decimals[default_format % wn]) + "f") % wn for wn in l]
+
+
 def concatenate_data(tables, filenames, label):
     if not tables:
         return None
@@ -53,7 +97,8 @@ def concatenate_data(tables, filenames, label):
            if hasattr(t, "special_spectral_data")]
     xs = reduce(numpy_union_keep_order, xss, np.array([]))
     if len(xs):
-        attrs = [ContinuousVariable("%f" % f) for f in xs]
+        names = wns_to_unique_str(xs)
+        attrs = [ContinuousVariable(n) for n in names]
         spectral_specific_domains = [Domain(attrs, None, None)]
 
     domain = _merge_domains(spectral_specific_domains + [table.domain for table in tables])

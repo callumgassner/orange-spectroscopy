@@ -18,11 +18,6 @@ class TestOWAverage(WidgetTest):
         # just to load the widget (it has no inputs)
         pass
 
-    def test_no_data_warning(self):
-        self.assertTrue(self.widget.Warning.nodata.is_shown())
-        self.send_signal("Data", self.collagen)
-        self.assertFalse(self.widget.Warning.nodata.is_shown())
-
     def test_average(self):
         self.send_signal("Data", self.collagen)
         out = self.get_output("Averages")

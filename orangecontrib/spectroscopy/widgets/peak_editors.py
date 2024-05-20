@@ -5,9 +5,10 @@ import lmfit
 import numpy as np
 from AnyQt.QtCore import Signal
 from Orange.widgets.data.utils.preprocess import blocked
-from PyQt5.QtCore import QSize, QObject
-from PyQt5.QtWidgets import \
-    QWidget, QHBoxLayout, QSizePolicy, QComboBox, QLineEdit, QGridLayout, QLabel
+from AnyQt.QtCore import QSize, QObject
+from AnyQt.QtWidgets import \
+    QWidget, QHBoxLayout, QSizePolicy, QComboBox, QLineEdit, QGridLayout, QLabel, \
+    QAbstractSpinBox
 from orangewidget.widget import Msg
 
 from orangecontrib.spectroscopy.data import getx
@@ -25,7 +26,7 @@ class CompactDoubleSpinBox(SetXDoubleSpinBox):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs,
-                         buttonSymbols=2)
+                         buttonSymbols=QAbstractSpinBox.NoButtons)
 
     def sizeHint(self) -> QSize:
         sh = super().sizeHint()

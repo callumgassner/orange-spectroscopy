@@ -59,7 +59,11 @@ class IntegrateOneEditor(BaseEditorOrange):
             self.__editors[name] = e
             layout.addRow(name, e)
 
-            l = MovableVline(position=v, label=name)
+            color = (225, 0, 0)
+            if "baseline" in name:
+                color = (255, 140, 26)
+
+            l = MovableVline(position=v, label=name, color=color)
             def set_rounded(_, line=l, name=name):
                 cf(float(line.rounded_value()), name)
             l.sigMoved.connect(set_rounded)
@@ -127,8 +131,8 @@ class IntegrateSimpleEditor(IntegrateOneEditor):
         if not self.user_changed:
             x = getx(data)
             if len(x):
-                self.set_value("Low limit", min(x))
-                self.set_value("High limit", max(x))
+                self.set_value("Low limit", min(x), user=False)
+                self.set_value("High limit", max(x), user=False)
                 self.edited.emit()
         super().set_preview_data(data)
 
@@ -148,7 +152,7 @@ class IntegratePeakMaxBaselineEditor(IntegrateSimpleEditor):
     integrator = Integrate.PeakBaseline
 
 
-class IntegrateAtEditor(IntegrateSimpleEditor):
+class IntegrateAtEditor(IntegrateOneEditor):
     qualname = "orangecontrib.infrared.integrate.closest"
     integrator = Integrate.PeakAt
 
@@ -156,7 +160,7 @@ class IntegrateAtEditor(IntegrateSimpleEditor):
         if not self.user_changed:
             x = getx(data)
             if len(x):
-                self.set_value("Closest to", min(x))
+                self.set_value("Closest to", min(x), user=False)
                 self.edited.emit()
         super().set_preview_data(data)
 
@@ -171,6 +175,22 @@ class IntegratePeakXBaselineEditor(IntegrateSimpleEditor):
     integrator = Integrate.PeakXBaseline
 
 
+class IntegrateSeparateBaselineEditor(IntegrateSimpleEditor):
+    qualname = "orangecontrib.infrared.integrate.baseline_separate"
+    integrator = Integrate.Separate
+
+    def set_preview_data(self, data):
+        if not self.user_changed:
+            x = getx(data)
+            if len(x):
+                self.set_value("Low limit (baseline)", min(x), user=False)
+                self.set_value("High limit (baseline)", max(x), user=False)
+                self.set_value("Low limit", min(x), user=False)
+                self.set_value("High limit", max(x), user=False)
+                self.edited.emit()
+        super().set_preview_data(data)
+
+
 PREPROCESSORS = [
     PreprocessAction(
         "Integrate", c.qualname, "Integration",
@@ -183,7 +203,8 @@ PREPROCESSORS = [
         IntegratePeakMaxBaselineEditor,
         IntegrateAtEditor,
         IntegratePeakXEditor,
-        IntegratePeakXBaselineEditor
+        IntegratePeakXBaselineEditor,
+        IntegrateSeparateBaselineEditor,
     ]
 ]
 
@@ -212,7 +233,7 @@ class OWIntegrate(SpectralPreprocess):
     def __init__(self):
         self.markings_list = []
         super().__init__()
-        cb = gui.checkBox(self.output_box, self, "output_metas", "Output as metas", callback=self.commit)
+        cb = gui.checkBox(self.output_box, self, "output_metas", "Output as metas", callback=self.commit.deferred)
         self.output_box.layout().insertWidget(0, cb)  # move to top of the box
         self.curveplot.selection_type = SELECTONE
         self.curveplot.select_at_least_1 = True

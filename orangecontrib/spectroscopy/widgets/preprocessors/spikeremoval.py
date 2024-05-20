@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QVBoxLayout
+from AnyQt.QtWidgets import QVBoxLayout
 from Orange.widgets import gui
 
 from orangecontrib.spectroscopy.widgets.preprocessors.registry import preprocess_editors

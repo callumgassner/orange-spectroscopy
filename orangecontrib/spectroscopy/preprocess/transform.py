@@ -19,7 +19,7 @@ class SpecTypes(Enum):
 
 
 class AbsorbanceFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _AbsorbanceCommon(CommonDomainRef):
@@ -39,6 +39,14 @@ class _AbsorbanceCommon(CommonDomainRef):
             absd *= -1
         # Replace infs from either np.true_divide or np.log10
         return replace_infs(absd)
+
+    def __disabled_eq__(self, other):
+        # pylint: disable=useless-parent-delegation
+        return super().__eq__(other)
+
+    def __disabled_hash__(self):
+        # pylint: disable=useless-parent-delegation
+        return super().__hash__()
 
 
 class TransformOptionalReference(Preprocess):
@@ -76,7 +84,7 @@ class Absorbance(TransformOptionalReference):
 
 
 class TransmittanceFeature(SelectColumn):
-    pass
+    InheritEq = True
 
 
 class _TransmittanceCommon(CommonDomainRef):
@@ -96,6 +104,14 @@ class _TransmittanceCommon(CommonDomainRef):
             np.power(10, transd, transd)
         # Replace infs from either np.true_divide or np.log10
         return replace_infs(transd)
+
+    def __disabled_eq__(self, other):
+        # pylint: disable=useless-parent-delegation
+        return super().__eq__(other)
+
+    def __disabled_hash__(self):
+        # pylint: disable=useless-parent-delegation
+        return super().__hash__()
 
 
 class Transmittance(TransformOptionalReference):

@@ -29,3 +29,7 @@ htmlcov/*
 
 # check_pylint_diff
 .pylint_cache
+
+# dask lcok files
+*.lock
+*.dirlock

@@ -46,7 +46,7 @@ class OWBin(OWWidget):
 
     settingsHandler = DomainContextHandler()
 
-    attrs = ContextSetting([None, None])
+    attrs = ContextSetting([None, None], exclude_attributes=True)
     bin_shape = settings.Setting((1, 1))
     square_bin = settings.Setting(True)
 

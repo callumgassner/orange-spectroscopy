@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QVBoxLayout, QFormLayout
+from AnyQt.QtWidgets import QVBoxLayout, QFormLayout
 from Orange.widgets import gui
 from orangecontrib.spectroscopy.widgets.gui import lineEditDecimalOrNone
 from orangecontrib.spectroscopy.widgets.preprocessors.registry import preprocess_editors

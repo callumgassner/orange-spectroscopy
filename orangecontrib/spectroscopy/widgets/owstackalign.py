@@ -13,6 +13,7 @@ from Orange.widgets.settings import DomainContextHandler, ContextSetting
 from Orange.widgets.utils.itemmodels import DomainModel
 from Orange.widgets.widget import OWWidget, Input, Output, Msg
 from Orange.widgets import gui, settings
+from Orange.widgets.visualize.utils.plotutils import PlotWidget
 
 from orangecontrib.spectroscopy.data import getx, build_spec_table
 from orangecontrib.spectroscopy.io.util import _spectra_from_image
@@ -24,6 +25,9 @@ from orangecontrib.spectroscopy.utils import NanInsideHypercube, InvalidAxisExce
 # the following line imports the copied code so that
 # we do not need to depend on scikit-learn
 from orangecontrib.spectroscopy.utils.skimage.register_translation import register_translation
+from orangecontrib.spectroscopy.widgets.owspectra import InteractiveViewBox
+
+
 # instead of from skimage.feature import register_translation
 
 # stack alignment code originally from: https://github.com/jpacold/STXM_live
@@ -137,8 +141,8 @@ class OWStackAlign(OWWidget):
     settingsHandler = DomainContextHandler()
 
     sobel_filter = settings.Setting(False)
-    attr_x = ContextSetting(None)
-    attr_y = ContextSetting(None)
+    attr_x = ContextSetting(None, exclude_attributes=True)
+    attr_y = ContextSetting(None, exclude_attributes=True)
     ref_frame_num = settings.Setting(0)
 
     def __init__(self):
@@ -175,7 +179,8 @@ class OWStackAlign(OWWidget):
         gui.rubber(self.controlArea)
 
         plot_box = gui.widgetBox(self.mainArea, "Shift curves")
-        self.plotview = pg.PlotWidget(background="w")
+        self.plotview = PlotWidget(viewBox=InteractiveViewBox(self))
+        self.plotview.plotItem.buttonsHidden = True
         plot_box.layout().addWidget(self.plotview)
         # TODO:  resize widget to make it a bit smaller
 

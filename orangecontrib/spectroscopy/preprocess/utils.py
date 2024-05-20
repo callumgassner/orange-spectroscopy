@@ -1,13 +1,32 @@
-import bottleneck
+import math
+from typing import Optional
+
 import numpy as np
+from Orange.data import Table, Domain
 from Orange.data.util import SharedComputeValue
 from scipy.interpolate import interp1d
 
 from orangecontrib.spectroscopy.data import getx
 
 
+try:
+    import dask
+    import dask.array
+except ImportError:
+    dask = False
+
+
 def is_increasing(a):
     return np.all(np.diff(a) >= 0)
+
+
+def full_like_type(orig, shape, val):
+    if isinstance(orig, np.ndarray):
+        return np.full(shape, val)
+    elif dask and isinstance(orig, dask.array.Array):
+        return dask.array.full(shape, val)
+    else:
+        raise RuntimeError("Unknown matrix txpe")
 
 
 class PreprocessException(Exception):
@@ -36,13 +55,20 @@ class SelectColumn(SharedComputeValue):
     def compute(self, data, common):
         return common[:, self.feature]
 
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and self.feature == other.feature
+
+    def __disabled_hash__(self):
+        return hash((super().__hash__(), self.feature))
+
 
 class CommonDomain:
     """A utility class that helps constructing common transformation for
     SharedComputeValue features. It does the domain transformation
     (input domain needs to be the same as it was with training data).
     """
-    def __init__(self, domain):
+    def __init__(self, domain: Domain):
         self.domain = domain
 
     def __call__(self, data):
@@ -55,25 +81,33 @@ class CommonDomain:
         return data
 
     def transformed(self, data):
-        raise NotImplemented
+        raise NotImplementedError
+
+    def __disabled_eq__(self, other):
+        return type(self) is type(other) \
+               and self.domain == other.domain
+
+    def __disabled_hash__(self):
+        return hash((type(self), self.domain))
 
 
 class CommonDomainRef(CommonDomain):
     """CommonDomain which also ensures reference domain transformation"""
-    def __init__(self, reference, domain):
+    def __init__(self, reference: Table, domain: Domain):
         super().__init__(domain)
         self.reference = reference
 
-    def interpolate_extend_to(self, interpolate, wavenumbers):
-        """
-        Interpolate data to given wavenumbers and extend the possibly
-        nan-edges with the nearest values.
-        """
-        # interpolate reference to the given wavenumbers
-        X = interp1d_with_unknowns_numpy(getx(interpolate), interpolate.X, wavenumbers)
-        # we know that X is not NaN. same handling of reference as of X
-        X, _ = nan_extend_edges_and_interpolate(wavenumbers, X)
-        return X
+    def interpolate_extend_to(self, interpolate: Table, wavenumbers):
+        return interpolate_extend_to(interpolate, wavenumbers)
+
+    def __disabled_eq__(self, other):
+        return super().__eq__(other) \
+               and table_eq_x(self.reference, other.reference)
+
+    def __disabled_hash__(self):
+        domain = self.reference.domain if self.reference is not None else None
+        fv = subset_for_hash(self.reference.X) if self.reference is not None else None
+        return hash((super().__hash__(), domain, fv))
 
 
 class CommonDomainOrder(CommonDomain):
@@ -98,7 +132,15 @@ class CommonDomainOrder(CommonDomain):
         return np.hstack((restored, X[:, xc:]))
 
     def transformed(self, X, wavenumbers):
-        raise NotImplemented
+        raise NotImplementedError
+
+    def __disabled_eq__(self, other):
+        # pylint: disable=useless-parent-delegation
+        return super().__eq__(other)
+
+    def __disabled_hash__(self):
+        # pylint: disable=useless-parent-delegation
+        return super().__hash__()
 
 
 class CommonDomainOrderUnknowns(CommonDomainOrder):
@@ -136,6 +178,32 @@ class CommonDomainOrderUnknowns(CommonDomainOrder):
         # restore order
         return self._restore_order(X, mon, xsind, xc)
 
+    def __disabled_eq__(self, other):
+        # pylint: disable=useless-parent-delegation
+        return super().__eq__(other)
+
+    def __disabled_hash__(self):
+        # pylint: disable=useless-parent-delegation
+        return super().__hash__()
+
+
+def table_eq_x(first: Optional[Table], second: Optional[Table]):
+    if first is second:
+        return True
+    elif first is None or second is None:
+        return False
+    else:
+        return first.domain.attributes == second.domain.attributes \
+               and np.array_equal(first.X, second.X)
+
+
+def subset_for_hash(array, size=10):
+    if array is None:
+        return tuple()
+    else:
+        vals = list(array.ravel()[:size])
+        return tuple(v if not math.isnan(v) else None for v in vals)
+
 
 def nan_extend_edges_and_interpolate(xs, X):
     """
@@ -144,12 +212,10 @@ def nan_extend_edges_and_interpolate(xs, X):
     so that they do not propagate.
     """
     nans = None
-    if bottleneck.anynan(X):
+    if np.any(np.isnan(X)):
         nans = np.isnan(X)
-        X = X.copy()
         xs, xsind, mon, X = transform_to_sorted_wavenumbers(xs, X)
-        fill_edges(X)
-        X = interp1d_with_unknowns_numpy(xs[xsind], X, xs[xsind])
+        X = interp1d_with_unknowns_numpy(xs[xsind], X, xs[xsind], sides=None)
         X = transform_back_to_features(xsind, mon, X)
     return X, nans
 
@@ -173,46 +239,57 @@ def transform_back_to_features(xsind, mon, X):
 def fill_edges_1d(l):
     """Replace (inplace!) NaN at sides with the closest value"""
     loc = np.where(~np.isnan(l))[0]
-    if len(loc):
-        fi, li = loc[[0, -1]]
+    try:
+        fi, li = np.array(loc[[0, -1]])
+    except IndexError:
+        # nothing to do, no valid value
+        return l
+    else:
         l[:fi] = l[fi]
         l[li + 1:] = l[li]
+        return l
 
 
 def fill_edges(mat):
     """Replace (inplace!) NaN at sides with the closest value"""
-    for l in mat:
-        fill_edges_1d(l)
+    for i, l in enumerate(mat):
+        if dask and isinstance(mat, dask.array.Array):
+            l = fill_edges_1d(l)
+            mat[i] = l
+        else:
+            fill_edges_1d(l)
 
 
 def remove_whole_nan_ys(x, ys):
     """Remove whole NaN columns of ys with corresponding x coordinates."""
-    whole_nan_columns = bottleneck.allnan(ys, axis=0)
+    whole_nan_columns = np.isnan(ys).all(axis=0)
     if np.any(whole_nan_columns):
         x = x[~whole_nan_columns]
         ys = ys[:, ~whole_nan_columns]
     return x, ys
 
 
-def interp1d_with_unknowns_numpy(x, ys, points, kind="linear"):
+def interp1d_with_unknowns_numpy(x, ys, points, kind="linear", sides=np.nan):
     if kind != "linear":
         raise NotImplementedError
-    out = np.zeros((len(ys), len(points)))*np.nan
+    out = full_like_type(ys, (len(ys), len(points)), np.nan)
     sorti = np.argsort(x)
     x = x[sorti]
     for i, y in enumerate(ys):
-        y = y[sorti]
+        # the next line ensures numpy arrays
+        # for Dask, it would be much more efficient to work with larger sections
+        y = np.array(y[sorti])
         nan = np.isnan(y)
         xt = x[~nan]
         yt = y[~nan]
         # do not interpolate unknowns at the edges
         if len(xt):  # check if all values are removed
-            out[i] = np.interp(points, xt, yt, left=np.nan, right=np.nan)
+            out[i] = np.interp(points, xt, yt, left=sides, right=sides)
     return out
 
 
 def interp1d_with_unknowns_scipy(x, ys, points, kind="linear"):
-    out = np.zeros((len(ys), len(points)))*np.nan
+    out = full_like_type(ys, (len(ys), len(points)), np.nan)
     sorti = np.argsort(x)
     x = x[sorti]
     for i, y in enumerate(ys):
@@ -236,6 +313,8 @@ def edge_baseline(x, y):
 
 
 def linear_baseline(x, y, zero_points=None):
+    if len(x) == 0:
+        return 0
     values_zero_points = interp1d(x, y, axis=1, fill_value="extrapolate")(zero_points)
     return interp1d(zero_points, values_zero_points, axis=1, fill_value="extrapolate")(x)
 
@@ -245,3 +324,22 @@ def replace_infs(array):
     This should be used anywhere a divide-by-zero can happen (/, np.log10, etc)"""
     array[np.isinf(array)] = np.nan
     return array
+
+
+def replacex(data: Table, replacement: list):
+    assert len(data.domain.attributes) == len(replacement)
+    natts = [at.renamed(str(n)) for n, at in zip(replacement, data.domain.attributes)]
+    ndom = Domain(natts, data.domain.class_vars, data.domain.metas)
+    return data.transform(ndom)
+
+
+def interpolate_extend_to(interpolate: Table, wavenumbers):
+    """
+    Interpolate data to given wavenumbers and extend the possibly
+    nan-edges with the nearest values.
+    """
+    # interpolate reference to the given wavenumbers
+    X = interp1d_with_unknowns_numpy(getx(interpolate), interpolate.X, wavenumbers)
+    # we know that X is not NaN. same handling of reference as of X
+    X, _ = nan_extend_edges_and_interpolate(wavenumbers, X)
+    return X

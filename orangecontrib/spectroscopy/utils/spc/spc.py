@@ -619,7 +619,7 @@ class File:
         >>> f.writefile('/Users/home/output.txt', delimiter=',')
 
         """
-        with open(path, 'w') as f:
+        with open(path, 'wt', encoding="utf8") as f:
             self.stream_data_txt(f, delimiter, newline)
 
     def print_metadata(self):

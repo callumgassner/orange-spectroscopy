@@ -4,9 +4,12 @@ import Orange
 from Orange.widgets.tests.base import WidgetTest
 from Orange.preprocess.preprocess import Preprocess
 
+from orangewidget.tests.utils import excepthook_catch
+
 from orangecontrib.spectroscopy.data import getx
 from orangecontrib.spectroscopy.tests import spectral_preprocess
 from orangecontrib.spectroscopy.tests.spectral_preprocess import pack_editor, wait_for_preview
+from orangecontrib.spectroscopy.tests.test_owspectra import wait_for_graph
 from orangecontrib.spectroscopy.widgets.owpreprocess import OWPreprocess
 from orangecontrib.spectroscopy.widgets.preprocessors.misc import \
     CutEditor, SavitzkyGolayFilteringEditor
@@ -14,7 +17,6 @@ from orangecontrib.spectroscopy.widgets.preprocessors.registry import preprocess
 from orangecontrib.spectroscopy.widgets.preprocessors.utils import BaseEditorOrange, \
     REFERENCE_DATA_PARAM
 from orangecontrib.spectroscopy.tests.util import smaller_data
-
 
 PREPROCESSORS = list(map(pack_editor, preprocess_editors.sorted()))
 
@@ -100,6 +102,8 @@ class TestOWPreprocess(WidgetTest):
         data = SMALL_COLLAGEN
         self.send_signal("Data", data)
         wait_for_preview(self.widget)
+        wait_for_graph(self.widget.curveplot)
+        wait_for_graph(self.widget.curveplot_after)
         self.widget.curveplot.highlight(1)
         self.assertEqual(self.widget.curveplot_after.highlighted, 1)
         self.widget.curveplot.highlight(None)
@@ -164,6 +168,14 @@ class TestOWPreprocess(WidgetTest):
         d = self.get_output(self.widget.Outputs.preprocessed_data)
         manual = p(data)
         np.testing.assert_equal(d.X, manual.X)
+
+    def test_invalid_preprocessors(self):
+        settings = {"storedsettings":
+                        {"preprocessors": [("xyz.abc.notme", {})]}}
+        with self.assertRaises(KeyError):
+            with excepthook_catch(raise_on_exit=True):
+                widget = self.create_widget(OWPreprocess, settings)
+                self.assertTrue(widget.Error.loading.is_shown())
 
     def test_migrate_rubberband(self):
         settings = {"storedsettings":
