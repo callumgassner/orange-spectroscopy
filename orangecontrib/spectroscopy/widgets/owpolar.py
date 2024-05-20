@@ -705,6 +705,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         return [t for t in self._data_inputs if t is not None]
 
     def handleNewSignals(self):
+        self.cancel()
         self.check_and_close_context()
         self.data = None
         self.Warning.clear()
