@@ -98,6 +98,7 @@ def run(data, feature, alpha, map_x, map_y, invert_angles, polangles, average,
     output, model, spectra, origmetas, errorstate = process_polar_abs(data, alpha, feature, map_x,
                                                     map_y, invert_angles, polangles, average, state)
 
+
     tempoutaddmetas = [[ContinuousVariable.make('Azimuth Angle (' + i.name + ')'),
                     ContinuousVariable.make('Hermans Orientation Function (' + i.name + ')'),
                     ContinuousVariable.make('Intensity (' + i.name + ')'),
@@ -191,22 +192,14 @@ def find_az(alpha, params):
     Abs1 = azimuth(Az1, *params)
     Az2 = calc_angles(params[0],params[1])-90
 
-    if alpha < 54.73:
-        if Abs0 > Abs1:
-            Az = Az0
-        elif Abs1 > Abs0:
-            if Az1 < 90:
-                Az = Az1
-            elif Az1 > 90:
-                Az = Az2
-    elif alpha >= 54.73:
-        if Abs0 < Abs1:
-            Az = Az0
-        elif Abs1 < Abs0:
-            if Az1 < 90:
-                Az = Az1
-            elif Az1 > 90:
-                Az = Az2
+
+    if Abs0 > Abs1:
+        Az = Az0
+    elif Abs1 > Abs0:
+        if Az1 < 90:
+            Az = Az1
+        elif Az1 > 90:
+            Az = Az2
     return Az
 
 def compute(xys, yidx, smms, shapes, dtypes, polangles):
