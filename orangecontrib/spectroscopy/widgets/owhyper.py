@@ -1355,8 +1355,8 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         ang = self.vector_angle
         mag = self.vector_magnitude
-        angs = self.data.get_column_view(ang)[0] if ang else np.full(len(self.data), 0)
-        mags = self.data.get_column_view(mag)[0] if mag else np.full(len(self.data), 1)
+        angs = self.data.get_column(ang) if ang else np.full(len(self.data), 0)
+        mags = self.data.get_column(mag) if mag else np.full(len(self.data), 1)
 
         return np.vstack([angs, mags]).T
 
