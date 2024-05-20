@@ -1245,6 +1245,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.imageplot = ImagePlot(self)
         self.imageplot.selection_changed.connect(self.output_image_selection)
 
+        self.data = None
         self.setup_vector_plot_controls()
 
         # do not save visible image (a complex structure as a setting;
@@ -1280,7 +1281,6 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         self.markings_integral = []
 
-        self.data = None
         self.disable_integral_range = False
 
         self.resize(900, 700)
