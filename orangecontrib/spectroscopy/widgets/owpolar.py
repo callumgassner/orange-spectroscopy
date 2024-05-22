@@ -551,7 +551,13 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
 
 
     def _feat_changed(self):
+        self.Warning.nofeat.clear()
         rows = self.feat_view.selectionModel().selectedRows()
+        if len(rows) > 0:
+            self.Warning.nofeat.clear()
+        else:
+            self.Warning.nofeat()
+            return
         values = self.feat_view.model()[:]
         self.feats = [values[row.row()] for row in sorted(rows)]
         self.commit.deferred()
