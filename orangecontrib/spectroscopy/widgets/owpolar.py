@@ -443,16 +443,16 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
     feats: List[Variable] = ContextSetting([])
 
     class Warning(OWWidget.Warning):
-        nodata = Msg("No useful data on input!")
-        noang = Msg("Must receive 4 angles at specified polarisation")
+        # nodata = Msg("No useful data on input!")
+        # noang = Msg("Must receive 4 angles at specified polarisation")
         nofeat = Msg("Select Feature")
         noxy = Msg("Select X and Y variables")
         pol = Msg("Invalid Polarisation angles")
         notenough = Msg("Must have >= 4 angles")
         wrongdata = Msg("Model returns inf. Inappropriate data")
-        tomany = Msg("Widget must receive data at data input or discrete angles only")
-        missingfeat = Msg("All inputs must have the selected feature")
-        renamed_variables = Msg("Variables with duplicated names have been renamed.")
+        # tomany = Msg("Widget must receive data at data input or discrete angles only")
+        # missingfeat = Msg("All inputs must have the selected feature")
+        # renamed_variables = Msg("Variables with duplicated names have been renamed.")
         XYfeat = Msg("Selected feature(s) cannot be the same as XY selection")
 
     def __init__(self):
@@ -577,7 +577,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         self.commit.deferred()
 
     def _change_angles(self):
-        self.Warning.nodata.clear()
+        # self.Warning.nodata.clear()
         if self.angles:
             self.clear_angles(self.anglst, self.lines, self.labels, self.multifile)
             self.anglst = []
