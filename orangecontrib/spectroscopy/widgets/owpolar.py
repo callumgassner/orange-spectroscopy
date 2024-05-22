@@ -445,7 +445,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
     class Warning(OWWidget.Warning):
         # nodata = Msg("No useful data on input!")
         # noang = Msg("Must receive 4 angles at specified polarisation")
-        nofeat = Msg("Select Feature")
+        nofeat = Msg("Select one or more Features to calculate orientations with")
         noxy = Msg("Select X and Y variables")
         pol = Msg("Invalid Polarisation angles")
         notenough = Msg("Must have >= 4 angles")
