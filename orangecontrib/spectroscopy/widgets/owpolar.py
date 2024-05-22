@@ -562,6 +562,10 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
         self.x_axis.set_domain(domain)
         self.y_axis.set_domain(domain)
         self.anglemetas.set_domain(domain)
+        self.angles = self.anglemetas[0] if self.anglemetas else None
+        self.map_x = self.x_axis[0] if self.x_axis else None
+        self.map_y = self.y_axis[1] if len(self.y_axis) >= 2 \
+            else self.map_x
 
     def _change_input(self):
         self.commit.deferred()
@@ -735,6 +739,7 @@ class OWPolar(OWWidget, ConcurrentWidgetMixin):
 
         if len(self.data) == 1:
             self.openContext(self.data[0])
+            self.angles = self.anglemetas[0] if self.anglemetas else None #Fixes self.angles being None if it was first a text variable and then changed to categorical, but I feel this could be done better...
             self._change_angles()
         elif 1 < len(self.data) < 4 or len(self.data) == 0:
             self.Warning.notenough()
