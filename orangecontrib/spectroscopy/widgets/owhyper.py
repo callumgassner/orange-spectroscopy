@@ -714,15 +714,15 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         layout.setRowStretch(1, 1)
         layout.setColumnStretch(1, 1)
         layout.addWidget(self.button, 0, 0)
-        view_menu = MenuFocus(self)
-        self.button.setMenu(view_menu)
+        self.view_menu = MenuFocus(self)
+        self.button.setMenu(self.view_menu)
 
         # prepare interface according to the new context
         self.parent.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
 
         actions = []
 
-        self.add_zoom_actions(view_menu)
+        self.add_zoom_actions(self.view_menu)
 
         select_square = QAction(
             "Select (square)", self, triggered=self.plot.vb.set_mode_select_square,
@@ -745,7 +745,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             save_graph.setShortcuts([QKeySequence(Qt.ControlModifier | Qt.Key_I)])
             actions.append(save_graph)
 
-        view_menu.addActions(actions)
+        self.view_menu.addActions(actions)
         self.addActions(actions)
         for a in actions:
             a.setShortcutVisibleInContextMenu(True)
@@ -774,7 +774,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         box.layout().addWidget(self.rgb_settings_box)
 
         choose_xy.setDefaultWidget(box)
-        view_menu.addAction(choose_xy)
+        self.view_menu.addAction(choose_xy)
 
         self.lsx = None  # info about the X axis
         self.lsy = None  # info about the Y axis
@@ -1302,10 +1302,15 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         VisualSettingsDialog(self, self.imageplot.parameter_setter.initial_settings)
 
     def setup_vector_plot_controls(self):
-        self.vectorbox = gui.widgetBox(self.controlArea, box=True)
+        enable_vect = QWidgetAction(self)
+        vect_box = gui.vBox(self)
+        vect_box.setContentsMargins(10,5,0,5)
+        self.cb_vector = gui.checkBox(vect_box, self, "show_vector_plot", label="Show vector plot",
+                                      callback=self.enable_vector)        
+        enable_vect.setDefaultWidget(vect_box)
+        self.imageplot.view_menu.addAction(enable_vect)
 
-        gui.checkBox(self.vectorbox, self, 'show_vector_plot',
-                     label='Plot vector overlay', callback=self._update_vector)
+        self.vectorbox = gui.widgetBox(self.controlArea, box=True)
 
         self.vector_opts = DomainModel(DomainModel.SEPARATED,
                                        valid_types=DomainModel.PRIMITIVE, placeholder='None')
@@ -1335,7 +1340,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                             minValue=0, maxValue=255, step=5, createLabel=False,
                                             callback=self.update_vector_colour)
 
-        self._update_vector()
+        self.enable_vector()
 
 
     def update_vector_plot_interface(self):
@@ -1343,6 +1348,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                          'vector_scale', 'vector_opacity']
         for i in vector_params:
             getattr(self.controls, i).setEnabled(self.show_vector_plot)
+
+    def enable_vector(self):
+        self.vectorbox.setVisible(self.show_vector_plot)
+        self._update_vector()
 
     def _update_vector(self):
         self.update_vector_plot_interface()
