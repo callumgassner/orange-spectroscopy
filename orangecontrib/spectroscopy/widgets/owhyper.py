@@ -833,8 +833,8 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         layout.setRowStretch(1, 1)
         layout.setColumnStretch(1, 1)
         layout.addWidget(self.button, 0, 0)
-        view_menu = MenuFocus(self)
-        self.button.setMenu(view_menu)
+        self.view_menu = MenuFocus(self)
+        self.button.setMenu(self.view_menu)
 
         # prepare interface according to the new context
         self.parent.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
@@ -865,7 +865,7 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         box.layout().addWidget(self.rgb_settings_box)
 
         choose_xy.setDefaultWidget(box)
-        view_menu.addAction(choose_xy)
+        self.view_menu.addAction(choose_xy)
 
         self.lsx = None  # info about the X axis
         self.lsy = None  # info about the Y axis
@@ -1364,6 +1364,87 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                 self.curveplot.parameter_setter.initial_settings[cp]
 
         VisualSettingsDialog(self, self.imageplot.parameter_setter.initial_settings)
+
+    def setup_vector_plot_controls(self):
+        enable_vect = QWidgetAction(self)
+        vect_box = gui.vBox(self)
+        vect_box.setContentsMargins(10,5,0,5)
+        self.cb_vector = gui.checkBox(vect_box, self, "show_vector_plot", label="Show vector plot",
+                                      callback=self.enable_vector)        
+        enable_vect.setDefaultWidget(vect_box)
+        self.imageplot.view_menu.addAction(enable_vect)
+
+        self.vectorbox = gui.widgetBox(self.controlArea, box=True)
+
+        self.vector_opts = DomainModel(DomainModel.SEPARATED,
+                                       valid_types=DomainModel.PRIMITIVE, placeholder='None')
+        self.vector_angle = None
+        self.vector_magnitude = None
+        self.colour_opts = vector_colour
+
+        self.v_angle_select = gui.comboBox(self.vectorbox, self, 'vector_angle', searchable=True,
+                                         label="Vector Angle", model=self.vector_opts,
+                                         callback=self._update_vector)
+
+        self.v_mag_select = gui.comboBox(self.vectorbox, self, 'vector_magnitude', searchable=True,
+                                       label="Vector Magnitude", model=self.vector_opts,
+                                       callback=self._update_vector)
+
+        self.v_colour_select = gui.comboBox(self.vectorbox, self, 'vector_colour_index',
+                                            label="Vector Colour", callback=self.update_vector_colour)
+        model = vector_colour_model(vector_colour)
+        model.setParent(self)
+        self.v_colour_select.setModel(model)
+
+        self.v_scale_slider = gui.hSlider(self.vectorbox, self, 'vector_scale', label="Scale",
+                                        minValue=0, maxValue=1000, step=10, createLabel=False,
+                                        callback=self.update_vector_scale)
+
+        self.v_opacity_slider = gui.hSlider(self.vectorbox, self, 'vector_opacity', label="Opacity",
+                                            minValue=0, maxValue=255, step=5, createLabel=False,
+                                            callback=self.update_vector_colour)
+
+        self.enable_vector()
+
+
+    def update_vector_plot_interface(self):
+        vector_params = ['vector_angle', 'vector_magnitude', 'vector_colour_index',
+                         'vector_scale', 'vector_opacity']
+        for i in vector_params:
+            getattr(self.controls, i).setEnabled(self.show_vector_plot)
+
+    def enable_vector(self):
+        self.vectorbox.setVisible(self.show_vector_plot)
+        self._update_vector()
+
+    def _update_vector(self):
+        self.update_vector_plot_interface()
+        self.imageplot.update_vectors()
+        self.imageplot.update_vector_colour()
+
+    def get_vector_data(self):
+        if self.show_vector_plot is False or self.data is None:
+            return None
+
+        ang = self.vector_angle
+        mag = self.vector_magnitude
+        angs = self.data.get_column(ang) if ang else np.full(len(self.data), 0)
+        mags = self.data.get_column(mag) if mag else np.full(len(self.data), 1)
+
+        return np.vstack([angs, mags]).T
+
+    def get_vector_colour(self):
+        return vector_colour[self.vector_colour_index][1][0] + (self.vector_opacity,)
+
+    def update_vector_colour(self):
+        self.imageplot.update_vector_colour()
+
+    def update_vector_scale(self):
+        self.imageplot.update_vectors()
+
+    def init_vector_plot(self, data):
+        domain = data.domain if data is not None else None
+        self.vector_opts.set_domain(domain)
 
         # initialize values so that the combo boxes are not in invalid states
         if self.vector_opts:
