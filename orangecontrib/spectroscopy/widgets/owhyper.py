@@ -931,7 +931,10 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.vis_img.setCompositionMode(comp_mode)
 
     def update_vector_colour(self):
-        pen = self.parent.get_vector_colour()
+        col = self.parent.get_vector_colour()
+        width = self.parent.vector_width
+        pen = pg.mkPen(color = col, width = width)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
         self.vector_plot.setPen(pen)
 
     def update_vectors(self):
@@ -1130,6 +1133,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     vector_magnitude = ContextSetting(None)
     vector_colour_index = ContextSetting(0)
     vector_scale = Setting(1)
+    vector_width = Setting(1)
     vector_opacity = Setting(255)
 
     show_visible_image = Setting(False)
@@ -1335,6 +1339,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.v_scale_slider = gui.hSlider(self.vectorbox, self, 'vector_scale', label="Scale",
                                         minValue=0, maxValue=1000, step=10, createLabel=False,
                                         callback=self.update_vector_scale)
+        
+        self.v_width_slider = gui.hSlider(self.vectorbox, self, 'vector_width', label="Width",
+                                        minValue=1, maxValue=40, step=10, createLabel=False,
+                                        callback=self.update_vector_colour)
 
         self.v_opacity_slider = gui.hSlider(self.vectorbox, self, 'vector_opacity', label="Opacity",
                                             minValue=0, maxValue=255, step=5, createLabel=False,
@@ -1345,7 +1353,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
     def update_vector_plot_interface(self):
         vector_params = ['vector_angle', 'vector_magnitude', 'vector_colour_index',
-                         'vector_scale', 'vector_opacity']
+                         'vector_scale', 'vector_width', 'vector_opacity']
         for i in vector_params:
             getattr(self.controls, i).setEnabled(self.show_vector_plot)
 
