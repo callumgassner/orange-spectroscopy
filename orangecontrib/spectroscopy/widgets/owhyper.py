@@ -1244,6 +1244,9 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
             contentsLength=12, searchable=True,
             callback=self.update_rgb_value, model=self.rgb_value_model)
 
+        self.cb_vector = gui.checkBox(rbox, self, "show_vector_plot", label="Show vector plot",
+                                      callback=self.enable_vector)   
+
         splitter = QSplitter(self)
         splitter.setOrientation(Qt.Vertical)
         self.imageplot = ImagePlot(self)
@@ -1306,13 +1309,6 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         VisualSettingsDialog(self, self.imageplot.parameter_setter.initial_settings)
 
     def setup_vector_plot_controls(self):
-        enable_vect = QWidgetAction(self)
-        vect_box = gui.vBox(self)
-        vect_box.setContentsMargins(10,5,0,5)
-        self.cb_vector = gui.checkBox(vect_box, self, "show_vector_plot", label="Show vector plot",
-                                      callback=self.enable_vector)        
-        enable_vect.setDefaultWidget(vect_box)
-        self.imageplot.view_menu.addAction(enable_vect)
 
         self.vectorbox = gui.widgetBox(self.controlArea, box=True)
 
