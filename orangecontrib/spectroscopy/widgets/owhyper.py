@@ -632,7 +632,7 @@ class ImageParameterSetter(CommonParameterSetter):
     @property
     def axis_items(self):
         return [value["item"] for value in self.master.plot.axes.values()] \
-               + [self.master.legend.axis]
+               + [self.master.legend.axis] + [self.master.vect_legend.axis]
 
     @property
     def getAxis(self):
@@ -787,6 +787,9 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.vector_plot = VectorPlot()
         self.vector_plot.hide()
         self.plot.addItem(self.vector_plot)
+        self.vect_legend = ImageColorLegend()
+        self.vect_legend.setVisible(False)
+        ci.addItem(self.vect_legend)
 
         layout = QGridLayout()
         self.plotview.setLayout(layout)
@@ -1413,7 +1416,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                             callback=self._update_vector)
         
         self.v_colour_byval = gui.comboBox(self.vectorbox, self, 'vcol_byval_feat',
-                                            label="Vector Colour by value", model=self.vector_opts,
+                                            label="Vector Colour by Feature", model=self.vector_opts,
                                             callback=self._update_vector)
         
         self.v_colour_byval_select = gui.comboBox(self.vectorbox, self, 'vcol_byval_index',
@@ -1447,9 +1450,15 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         if self.vector_colour_index == 8:
             self.v_colour_byval.setEnabled(True)
             self.v_colour_byval_select.setEnabled(True)
+            if self.vcol_byval_feat is not None:
+                self.imageplot.vect_legend.setVisible(True)
+                self.imageplot.vect_legend.adapt_to_size()
+            else:
+                self.imageplot.vect_legend.setVisible(False)
         else:
             self.v_colour_byval.setEnabled(False)
             self.v_colour_byval_select.setEnabled(False)
+            self.imageplot.vect_legend.setVisible(False)
 
     def enable_vector(self):
         self.vectorbox.setVisible(self.show_vector_plot)
@@ -1458,6 +1467,16 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def _update_vector(self):
         self.update_vector_plot_interface()
         self.imageplot.update_vectors()
+        if self.vector_colour_index == 8 and \
+            self.vcol_byval_feat is not None:
+                self.update_vect_legend()#
+        
+    def update_vect_legend(self):#feat
+        feat = self.data.get_column(self.vcol_byval_feat)
+        fmin, fmax = np.min(feat), np.max(feat)
+        self.imageplot.vect_legend.set_range(fmin, fmax)
+        self.imageplot.vect_legend.set_colors(_color_palettes[self.vcol_byval_index][1][0])
+        self.imageplot.vect_legend.adapt_to_size()
 
     def get_vector_data(self):
         if self.show_vector_plot is False or self.data is None:
