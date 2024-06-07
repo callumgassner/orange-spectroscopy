@@ -7,7 +7,7 @@ from AnyQt.QtWidgets import QWidget, QPushButton, \
     QGridLayout, QFormLayout, QAction, QVBoxLayout, QWidgetAction, QSplitter, \
     QToolTip, QGraphicsRectItem
 from AnyQt.QtGui import QColor, QKeySequence, QPainter, QBrush, QStandardItemModel, \
-    QStandardItem, QLinearGradient, QPixmap, QIcon
+    QStandardItem, QLinearGradient, QPixmap, QIcon, QPen
 
 from AnyQt.QtCore import Qt, QRectF, QPointF, QSize
 from AnyQt.QtTest import QTest
@@ -258,6 +258,7 @@ vector_colour = [
     ("Cyan", {0: (0,255,255)}),
     ("Magenta", {0: (255,0,255)}),
     ("Yellow", {0: (255,255,0)}),
+    ("By Feature", {0: ('by feature')})
 ]
 
 def palette_gradient(colors):
@@ -641,6 +642,87 @@ class ImageParameterSetter(CommonParameterSetter):
     def legend_items(self):
         return []
 
+class VectorPlot(pg.GraphicsObject):
+    
+    def __init__(self):
+        pg.GraphicsObject.__init__(self)
+        self.params = None
+        self.coords = [None, None]
+
+        self._maxSpotPxWidth = 0
+        self._boundingRect = None
+    
+    def setData(self, params, coords):
+        self._maxSpotPxWidth = 0
+        self._boundingRect = None
+        
+        self.coords = coords
+        self.params = params
+        self.prepareGeometryChange()
+        self.informViewBoundsChanged()
+        self.update()
+        
+    def viewTransformChanged(self):
+        self.prepareGeometryChange()
+    
+    def paint(self, p, option, widget):
+        if type(self.params[3]) == tuple:
+            path = pg.arrayToQPath(self.params[0], self.params[1], connect = 'pairs', finiteCheck=False)
+            pen = QPen(QBrush(QColor(*self.params[3])), self.params[2])
+            pen.setCosmetic(True)
+            p.setPen(pen)
+            p.drawPath(path)
+        elif type(self.params[3]) == list:
+            pen = QPen(QBrush(QColor()), self.params[2])
+            pen.setCosmetic(True)
+            unique_cols = np.unique(self.params[3][0], return_index=True, axis=0)
+            irgbx2 = np.hstack((self.params[3][0], self.params[3][0])).reshape(self.params[3][0].shape[0]*2, 4)
+            for i in unique_cols[0]:
+                path = pg.arrayToQPath(self.params[0][np.where(irgbx2[:,0] == i[0])], 
+                                       self.params[1][np.where(irgbx2[:,0] == i[0])], 
+                                       connect = 'pairs', finiteCheck=False)
+                pen.setColor(QColor(*i[1:], self.params[3][1]))
+                p.setPen(pen)
+                p.drawPath(path)
+
+    # These functions are the same as pg.plotcurveitem with small adaptations
+    def pixelPadding(self):
+        self._maxSpotPxWidth = self.params[2]*0.7072
+        return self._maxSpotPxWidth
+
+    def boundingRect(self):
+        if self.params is None:
+            return QRectF()
+        elif self._boundingRect is None and self.params is not None:
+            (xmn, xmx) = (np.nanmin(self.params[0]), np.nanmax(self.params[0]))
+            (ymn, ymx) = (np.nanmin(self.params[1]), np.nanmax(self.params[1]))
+            if xmn is None or xmx is None:
+                return QRectF()
+            if ymn is None or ymx is None:
+                return QRectF()
+
+            px = py = 0.0
+            pxPad = self.pixelPadding()
+            if pxPad > 0:
+                # determine length of pixel in local x, y directions
+                px, py = self.pixelVectors()
+                try:
+                    px = 0 if px is None else px.length()
+                except OverflowError:
+                    px = 0
+                try:
+                    py = 0 if py is None else py.length()
+                except OverflowError:
+                    py = 0
+
+                # return bounds expanded by pixel size
+                px *= pxPad
+                py *= pxPad
+            #px += self._maxSpotWidth * 0.5
+            #py += self._maxSpotWidth * 0.5
+            self._boundingRect = QRectF(xmn-px, ymn-py, (2*px)+xmx-xmn, (2*py)+ymx-ymn)
+
+        return self._boundingRect
 
 class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
                 ImageColorSettingMixin, ImageRGBSettingMixin,
@@ -702,7 +784,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.plot.vb.setAspectLocked()
         self.plot.scene().sigMouseMoved.connect(self.plot.vb.mouseMovedEvent)
 
-        self.vector_plot = pg.PlotCurveItem()
+        self.vector_plot = VectorPlot()
         self.vector_plot.hide()
         self.plot.addItem(self.vector_plot)
 
@@ -930,13 +1012,6 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
     def set_visible_image_comp_mode(self, comp_mode: QPainter.CompositionMode):
         self.vis_img.setCompositionMode(comp_mode)
 
-    def update_vector_colour(self):
-        col = self.parent.get_vector_colour()
-        width = self.parent.vector_width
-        pen = pg.mkPen(color = col, width = width)
-        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
-        self.vector_plot.setPen(pen)
-
     def update_vectors(self):
         v = self.parent.get_vector_data()
         if self.lsx is None:  # image is not shown or is being computed
@@ -948,8 +1023,9 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             lsx, lsy = self.lsx, self.lsy
             xindex, yindex = self.xindex, self.yindex
             scale = self.parent.vector_scale
-            th = v[:,0]
-            v_mag = v[:,1]
+            w = self.parent.vector_width
+            th = np.asarray(v[:,0], dtype=float)
+            v_mag = np.asarray(v[:,1], dtype=float)
             amp = v_mag / max(v_mag) * (scale/100)
             wy = _shift(lsx)*2
             wx = _shift(lsx)*2
@@ -961,9 +1037,10 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             ycurve = np.empty((dispy.shape[0]*2))
             xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
             ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
-            connect = np.ones((dispx.shape[0]*2))
-            connect[1::2] = 0
-            self.vector_plot.setData(x=xcurve, y=ycurve, connect=connect)
+            vcols = self.parent.get_vector_colour(v[:,2])
+            v_params = [xcurve, ycurve, w, vcols]
+
+            self.vector_plot.setData(v_params, [x, y])
             self.vector_plot.show()
 
     @staticmethod
@@ -1059,7 +1136,6 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.xindex = xindex
 
         self.update_vectors()
-        self.update_vector_colour()
 
         self.refresh_img_selection()
         self.image_updated.emit()
@@ -1131,7 +1207,9 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     show_vector_plot = Setting(False)
     vector_angle = ContextSetting(None)
     vector_magnitude = ContextSetting(None)
-    vector_colour_index = ContextSetting(0)
+    vector_colour_index = Setting(0)
+    vcol_byval_index = Setting(0)
+    vcol_byval_feat = ContextSetting(None)
     vector_scale = Setting(1)
     vector_width = Setting(1)
     vector_opacity = Setting(255)
@@ -1314,8 +1392,12 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         self.vector_opts = DomainModel(DomainModel.SEPARATED,
                                        valid_types=DomainModel.PRIMITIVE, placeholder='None')
+        self.vector_col_opts = vector_colour_model(vector_colour)
+        self.vector_pal_opts = color_palette_model(_color_palettes, (QSize(64, 16)))
+        
         self.vector_angle = None
         self.vector_magnitude = None
+        self.vcol_byval_feat = None
         self.colour_opts = vector_colour
 
         self.v_angle_select = gui.comboBox(self.vectorbox, self, 'vector_angle', searchable=True,
@@ -1327,22 +1409,31 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                        callback=self._update_vector)
 
         self.v_colour_select = gui.comboBox(self.vectorbox, self, 'vector_colour_index',
-                                            label="Vector Colour", callback=self.update_vector_colour)
-        model = vector_colour_model(vector_colour)
-        model.setParent(self)
-        self.v_colour_select.setModel(model)
+                                            label="Vector Colour", model=self.vector_col_opts,
+                                            callback=self._update_vector)
+        
+        self.v_colour_byval = gui.comboBox(self.vectorbox, self, 'vcol_byval_feat',
+                                            label="Vector Colour by value", model=self.vector_opts,
+                                            callback=self._update_vector)
+        
+        self.v_colour_byval_select = gui.comboBox(self.vectorbox, self, 'vcol_byval_index',
+                                            label="", model = self.vector_pal_opts,
+                                            callback=self._update_vector)
+        self.v_colour_byval_select.setIconSize(QSize(64, 16))
+        
+        self.v_colour_byval_select.setEnabled(False)
 
         self.v_scale_slider = gui.hSlider(self.vectorbox, self, 'vector_scale', label="Scale",
-                                        minValue=0, maxValue=1000, step=10, createLabel=False,
-                                        callback=self.update_vector_scale)
+                                        minValue=1, maxValue=1000, step=10, createLabel=False,
+                                        callback=self._update_vector)
         
         self.v_width_slider = gui.hSlider(self.vectorbox, self, 'vector_width', label="Width",
-                                        minValue=1, maxValue=40, step=10, createLabel=False,
-                                        callback=self.update_vector_colour)
+                                        minValue=1, maxValue=40, step=1, createLabel=False,
+                                        callback=self._update_vector)
 
         self.v_opacity_slider = gui.hSlider(self.vectorbox, self, 'vector_opacity', label="Opacity",
                                             minValue=0, maxValue=255, step=5, createLabel=False,
-                                            callback=self.update_vector_colour)
+                                            callback=self._update_vector)
 
         self.enable_vector()
 
@@ -1353,6 +1444,13 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         for i in vector_params:
             getattr(self.controls, i).setEnabled(self.show_vector_plot)
 
+        if self.vector_colour_index == 8:
+            self.v_colour_byval.setEnabled(True)
+            self.v_colour_byval_select.setEnabled(True)
+        else:
+            self.v_colour_byval.setEnabled(False)
+            self.v_colour_byval_select.setEnabled(False)
+
     def enable_vector(self):
         self.vectorbox.setVisible(self.show_vector_plot)
         self._update_vector()
@@ -1360,7 +1458,6 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def _update_vector(self):
         self.update_vector_plot_interface()
         self.imageplot.update_vectors()
-        self.imageplot.update_vector_colour()
 
     def get_vector_data(self):
         if self.show_vector_plot is False or self.data is None:
@@ -1368,19 +1465,26 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         ang = self.vector_angle
         mag = self.vector_magnitude
+        col = self.vcol_byval_feat
         angs = self.data.get_column(ang) if ang else np.full(len(self.data), 0)
         mags = self.data.get_column(mag) if mag else np.full(len(self.data), 1)
+        cols = self.data.get_column(col) if col else np.full(len(self.data), None)
 
-        return np.vstack([angs, mags]).T
+        return np.vstack([angs, mags, cols]).T
 
-    def get_vector_colour(self):
-        return vector_colour[self.vector_colour_index][1][0] + (self.vector_opacity,)
-
-    def update_vector_colour(self):
-        self.imageplot.update_vector_colour()
-
-    def update_vector_scale(self):
-        self.imageplot.update_vectors()
+    def get_vector_colour(self, feat):
+        if self.vector_colour_index == 8:
+            if feat[0] == None: # a feat has not been selected yet
+                return vector_colour[0][1][0] + (self.vector_opacity,)
+            else:
+                fmin, fmax = np.min(feat), np.max(feat)
+                feat_idxs = np.asarray(((feat-fmin)/(fmax-fmin))*255, dtype=int)
+                col_vals = np.asarray(_color_palettes[self.vcol_byval_index][1][0][feat_idxs], dtype=int)
+                out = [np.hstack((np.expand_dims(feat_idxs, 1), col_vals)),  
+                       self.vector_opacity]
+                return out
+        else:
+            return vector_colour[self.vector_colour_index][1][0] + (self.vector_opacity,)
 
     def init_vector_plot(self, data):
         domain = data.domain if data is not None else None
@@ -1389,9 +1493,9 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         # initialize values so that the combo boxes are not in invalid states
         if self.vector_opts:
             # TODO here we could instead set good default values if available
-            self.vector_magnitude = self.vector_angle = None
+            self.vector_magnitude = self.vector_angle = self.vcol_byval_feat = None
         else:
-            self.vector_magnitude = self.vector_angle = None
+            self.vector_magnitude = self.vector_angle = self.vcol_byval_feat = None
 
     def setup_visible_image_controls(self):
         self.visbox = gui.widgetBox(self.controlArea, True)
