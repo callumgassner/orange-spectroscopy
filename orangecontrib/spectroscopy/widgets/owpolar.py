@@ -1,3 +1,4 @@
+import time
 import os
 import multiprocessing
 from multiprocessing.managers import SharedMemoryManager
@@ -136,6 +137,10 @@ def run(data, feature, alpha, map_x, map_y, invert_angles, polangles, average,
         outmetadom = (ometadom + tuple(outaddmetas))
         modmetadom = (ometadom + tuple(modaddmetas))
 
+    if state.is_interruption_requested():
+        results = None
+        return results
+
     ofeatdom = data[0].domain.attributes
     datadomain = Domain(ofeatdom, metas = outmetadom)
     moddomain = Domain(ofeatdom, metas = modmetadom)
@@ -144,6 +149,10 @@ def run(data, feature, alpha, map_x, map_y, invert_angles, polangles, average,
 
     out = Table.from_numpy(datadomain, X=spectra, Y=None, metas=outmetas)
     mod = Table.from_numpy(moddomain, X=spectra, Y=None, metas=modmetas)
+
+    if state.is_interruption_requested():
+        results = None
+        return results
 
     results.out = out
     results.model = mod
@@ -217,9 +226,11 @@ def compute(xys, yidx, smms, shapes, dtypes, polangles):
     x = np.asarray(polangles)
 
     for i in range(yidx[0], yidx[1]):#y-values(rows)
-        if vars[1] == 1:
+        if vars[1] != 0:
             break
         for j in enumerate(xys[0]):#x-values(cols)
+            if vars[1] != 0:
+                break
             for l in range(cvs.shape[2]):
                 if np.any(np.isnan(cvs[i,j[0],l,:]), axis=0):
                     continue
@@ -325,7 +336,10 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
     coords = np.full((np.shape(ulsys)[0], np.shape(ulsxs)[0], 2), np.nan)
     vars = np.asarray([alpha, 0])
     fill = np.full((np.shape(ulsys)[0], np.shape(ulsxs)[0]), np.nan)
+
     for i, j in enumerate(images):
+        if state.is_interruption_requested():
+            return None, None, None, None, 2
         cv = [j.domain[k] for k in featnames]
         doms = [map_x, map_y] + cv
         tempdata: Table = j.transform(Domain(doms))
@@ -342,6 +356,9 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
             coords[k,l,0] = i
             coords[k,l,1] = j
 
+    if state.is_interruption_requested():
+        return None, None, None, None, 2
+    
     with SharedMemoryManager() as smm:
         tcvs = smm.SharedMemory(size=cvs.nbytes)
         scvs = np.ndarray(cvs.shape, dtype=cvs.dtype, buffer=tcvs.buf)
@@ -358,21 +375,33 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
         tvars = smm.SharedMemory(size=vars.nbytes)
         svars = np.ndarray(vars.shape, dtype=vars.dtype, buffer=tvars.buf)
         svars[:] = vars[:]
+        svars[:] = vars[:] # vars[1] == 0 -> continue processing, vars[1] == 1 -> data is incompatible, vars[1] == 2 -> interruption requested
 
         smms = [tcvs, None, None, tout, tmod, tcoords, tvars]
         shapes = [cvs.shape, spec.shape, metas.shape, out.shape, mod.shape, coords.shape, vars.shape]
         dtypes = [cvs.dtype, spec.dtype, metas.dtype, out.dtype, mod.dtype, coords.dtype, vars.dtype]
 
+        if state.is_interruption_requested():
+            return None, None, None, None, 2
         threads = start_compute(ulsxs, ulsys, smms, shapes, dtypes, polangles, state)
 
         for t in threads:
-            t.join()
+            t.join(0)
+
+        while any([i.exitcode == None for i in threads]):
+            if state.is_interruption_requested():
+                svars[1] = 2
+            time.sleep(0.10)
 
         state.set_status("Finishing...")
         if invert is True:
             sout[:,:,:,2] = sout[:,:,:,2]*-1
         outputs = np.reshape(sout[:,:,:,2:], (np.shape(ulsys)[0]*np.shape(ulsxs)[0], 5*len(featnames)))
         model = np.reshape(smod[:,:,:,2:], (np.shape(ulsys)[0]*np.shape(ulsxs)[0], 4*len(featnames)))
+        vars[:] = svars[:]
+
+    if state.is_interruption_requested():
+        return None, None, None, None, 2
 
     spectra = []
     met = []
@@ -387,6 +416,10 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
             metatemp = metatemp[~np.isnan(model).any(axis=1)]
             metatemp = np.append(metatemp, np.full((np.shape(metatemp)[0],1), i), axis=1)
             met.append(metatemp)
+
+            if state.is_interruption_requested():
+                return None, None, None, None, 2
+
     elif average is True:
         average_spec = np.average(spec, axis=3)
         spectratemp = np.reshape(average_spec,
