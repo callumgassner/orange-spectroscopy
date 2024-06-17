@@ -647,16 +647,14 @@ class VectorPlot(pg.GraphicsObject):
     def __init__(self):
         pg.GraphicsObject.__init__(self)
         self.params = None
-        self.coords = [None, None]
 
         self._maxSpotPxWidth = 0
         self._boundingRect = None
     
-    def setData(self, params, coords):
+    def setData(self, params):
         self._maxSpotPxWidth = 0
         self._boundingRect = None
-        
-        self.coords = coords
+
         self.params = params
         self.prepareGeometryChange()
         self.informViewBoundsChanged()
@@ -666,24 +664,25 @@ class VectorPlot(pg.GraphicsObject):
         self.prepareGeometryChange()
     
     def paint(self, p, option, widget):
-        if type(self.params[3]) == tuple:
-            path = pg.arrayToQPath(self.params[0], self.params[1], connect = 'pairs', finiteCheck=False)
-            pen = QPen(QBrush(QColor(*self.params[3])), self.params[2])
-            pen.setCosmetic(True)
-            p.setPen(pen)
-            p.drawPath(path)
-        elif type(self.params[3]) == list:
-            pen = QPen(QBrush(QColor()), self.params[2])
-            pen.setCosmetic(True)
-            unique_cols = np.unique(self.params[3][0], return_index=True, axis=0)
-            irgbx2 = np.hstack((self.params[3][0], self.params[3][0])).reshape(self.params[3][0].shape[0]*2, 4)
-            for i in unique_cols[0]:
-                path = pg.arrayToQPath(self.params[0][np.where(irgbx2[:,0] == i[0])], 
-                                       self.params[1][np.where(irgbx2[:,0] == i[0])], 
-                                       connect = 'pairs', finiteCheck=False)
-                pen.setColor(QColor(*i[1:], self.params[3][1]))
+        if self.params is not None:
+            if type(self.params[3]) == tuple:
+                path = pg.arrayToQPath(self.params[0], self.params[1], connect = 'pairs', finiteCheck=False)
+                pen = QPen(QBrush(QColor(*self.params[3])), self.params[2])
+                pen.setCosmetic(True)
                 p.setPen(pen)
                 p.drawPath(path)
+            elif type(self.params[3]) == list:
+                pen = QPen(QBrush(QColor()), self.params[2])
+                pen.setCosmetic(True)
+                unique_cols = np.unique(self.params[3][0], return_index=True, axis=0)
+                irgbx2 = np.hstack((self.params[3][0], self.params[3][0])).reshape(self.params[3][0].shape[0]*2, 4)
+                for i in unique_cols[0]:
+                    path = pg.arrayToQPath(self.params[0][np.where(irgbx2[:,0] == i[0])],
+                                        self.params[1][np.where(irgbx2[:,0] == i[0])],
+                                        connect = 'pairs', finiteCheck=False)
+                    pen.setColor(QColor(*i[1:], self.params[3][1]))
+                    p.setPen(pen)
+                    p.drawPath(path)
 
     # These functions are the same as pg.plotcurveitem with small adaptations
     def pixelPadding(self):
@@ -1431,7 +1430,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                         callback=self._update_vector)
         
         self.v_width_slider = gui.hSlider(self.vectorbox, self, 'vector_width', label="Width",
-                                        minValue=1, maxValue=40, step=1, createLabel=False,
+                                        minValue=1, maxValue=20, step=1, createLabel=False,
                                         callback=self._update_vector)
 
         self.v_opacity_slider = gui.hSlider(self.vectorbox, self, 'vector_opacity', label="Opacity",
