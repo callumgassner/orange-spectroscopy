@@ -16,6 +16,7 @@ from AnyQt.QtCore import pyqtSignal as Signal
 
 import bottleneck
 import numpy as np
+import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import GraphicsWidget
 import colorcet
@@ -259,6 +260,19 @@ vector_colour = [
     ("Magenta", {0: (255,0,255)}),
     ("Yellow", {0: (255,255,0)}),
     ("By Feature", {0: ('by feature')})
+]
+
+bins = [
+    ("1 x 1", {0, (1)}),
+    ("2 x 2", {0, (2)}),
+    ("3 x 3", {0, (3)}),
+    ("4 x 4", {0, (4)}),
+    ("5 x 5", {0, (5)}),
+    ("6 x 6", {0, (6)}),
+    ("7 x 7", {0, (7)}),
+    ("8 x 8", {0, (8)}),
+    ("9 x 9", {0, (9)}),
+    ("10 x 10", {0, (10)}),
 ]
 
 def palette_gradient(colors):
@@ -990,6 +1004,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.data_valid_positions = None
         self.xindex = None
         self.yindex = None
+        self.parent.update_binsize()
         self.update_vectors()  # clears the vector plot
 
         self.start(self.compute_image, self.data, self.attr_x, self.attr_y,
@@ -1028,22 +1043,36 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
             w = self.parent.vector_width
             th = np.asarray(v[:,0], dtype=float)
             v_mag = np.asarray(v[:,1], dtype=float)
-            amp = v_mag / max(v_mag) * (scale/100)
             wy = _shift(lsx)*2
             wx = _shift(lsx)*2
-            y = np.linspace(*lsy)[yindex[valid]]
-            x = np.linspace(*lsx)[xindex[valid]]
-            dispx = amp*wx/2*np.cos(np.radians(th))
-            dispy = amp*wy/2*np.sin(np.radians(th))
-            xcurve = np.empty((dispx.shape[0]*2))
-            ycurve = np.empty((dispy.shape[0]*2))
-            xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
-            ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
-            vcols = self.parent.get_vector_colour(v[:,2])
-            v_params = [xcurve, ycurve, w, vcols]
-
-            self.vector_plot.setData(v_params, [x, y])
+            if self.parent.v_bin == 0:
+                y = np.linspace(*lsy)[yindex[valid]]
+                x = np.linspace(*lsx)[xindex[valid]]
+                amp = v_mag / max(v_mag) * (scale/100)
+                dispx = amp*wx/2*np.cos(np.radians(th))
+                dispy = amp*wy/2*np.sin(np.radians(th))
+                xcurve = np.empty((dispx.shape[0]*2))
+                ycurve = np.empty((dispy.shape[0]*2))
+                xcurve[0::2], xcurve[1::2] = x - dispx, x + dispx
+                ycurve[0::2], ycurve[1::2] = y - dispy, y + dispy
+                vcols = self.parent.get_vector_colour(v[:,2])
+                v_params = [xcurve, ycurve, w, vcols]
+                self.vector_plot.setData(v_params)
+            else:
+                amp = self.parent.a / max(self.parent.a) * (scale/100)
+                dispx = amp*wx/2*np.cos(self.parent.th)
+                dispy = amp*wy/2*np.sin(self.parent.th)
+                xcurve = np.empty((dispx.shape[0]*2))
+                ycurve = np.empty((dispy.shape[0]*2))
+                xcurve[0::2], xcurve[1::2] = self.parent.new_xs - dispx, self.parent.new_xs + dispx
+                ycurve[0::2], ycurve[1::2] = self.parent.new_ys - dispy, self.parent.new_ys + dispy
+                vcols = self.parent.get_vector_colour(v[:,2])
+                v_params = [xcurve, ycurve, w, vcols]
+                self.vector_plot.setData(v_params)
             self.vector_plot.show()
+        if self.parent.vector_colour_index == 8 and \
+            self.parent.vcol_byval_feat is not None:
+                self.parent.update_vect_legend()
 
     @staticmethod
     def compute_image(data: Orange.data.Table, attr_x, attr_y,
@@ -1137,6 +1166,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         self.yindex = yindex
         self.xindex = xindex
 
+        self.parent.update_binsize()
         self.update_vectors()
 
         self.refresh_img_selection()
@@ -1215,6 +1245,14 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     vector_scale = Setting(1)
     vector_width = Setting(1)
     vector_opacity = Setting(255)
+    v_bin = Setting(0)
+
+    a = None
+    th = None
+    cols = None
+    new_xs = None
+    new_ys = None
+    v_bin_change = 0
 
     show_visible_image = Setting(False)
     visible_image_name = Setting(None)
@@ -1396,6 +1434,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                        valid_types=DomainModel.PRIMITIVE, placeholder='None')
         self.vector_col_opts = vector_colour_model(vector_colour)
         self.vector_pal_opts = color_palette_model(_color_palettes, (QSize(64, 16)))
+        self.vector_bin_opts = vector_colour_model(bins)
         
         self.vector_angle = None
         self.vector_magnitude = None
@@ -1437,6 +1476,9 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                             minValue=0, maxValue=255, step=5, createLabel=False,
                                             callback=self._update_vector)
 
+        self.v_bin_select = gui.comboBox(self.vectorbox, self, 'v_bin', label = "Pixel Binning",
+                                         model = self.vector_bin_opts, callback = self._update_binsize)
+
         self.enable_vector()
 
 
@@ -1466,12 +1508,12 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def _update_vector(self):
         self.update_vector_plot_interface()
         self.imageplot.update_vectors()
-        if self.vector_colour_index == 8 and \
-            self.vcol_byval_feat is not None:
-                self.update_vect_legend()#
         
     def update_vect_legend(self):#feat
-        feat = self.data.get_column(self.vcol_byval_feat)
+        if self.v_bin != 0:
+            feat = self.cols
+        else:
+            feat = self.data.get_column(self.vcol_byval_feat)
         fmin, fmax = np.min(feat), np.max(feat)
         self.imageplot.vect_legend.set_range(fmin, fmax)
         self.imageplot.vect_legend.set_colors(_color_palettes[self.vcol_byval_index][1][0])
@@ -1495,14 +1537,89 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
             if feat[0] == None: # a feat has not been selected yet
                 return vector_colour[0][1][0] + (self.vector_opacity,)
             else:
+                if self.v_bin != 0:
+                    self.update_binsize()
+                    feat = self.cols
                 fmin, fmax = np.min(feat), np.max(feat)
+                if fmin == fmax:
+                    return vector_colour[0][1][0] + (self.vector_opacity,)
                 feat_idxs = np.asarray(((feat-fmin)/(fmax-fmin))*255, dtype=int)
                 col_vals = np.asarray(_color_palettes[self.vcol_byval_index][1][0][feat_idxs], dtype=int)
-                out = [np.hstack((np.expand_dims(feat_idxs, 1), col_vals)),  
+                out = [np.hstack((np.expand_dims(feat_idxs, 1), col_vals)),
                        self.vector_opacity]
                 return out
         else:
             return vector_colour[self.vector_colour_index][1][0] + (self.vector_opacity,)
+
+    def circular_mean(self, degs):
+        sin = np.nansum(np.sin(np.radians(degs*2)))
+        cos = np.nansum(np.cos(np.radians(degs*2)))
+        return np.arctan2(sin, cos)/2
+
+    def _update_binsize(self):
+        self.v_bin_change = 1
+        self.update_binsize()
+
+    def update_binsize(self):
+        if self.v_bin == 0:
+            self.v_bin_change = 0
+            self.imageplot.update_vectors()
+        else:
+            v = self.get_vector_data()
+            valid = self.imageplot.data_valid_positions
+            lsx, lsy = self.imageplot.lsx, self.imageplot.lsy
+            xindex, yindex = self.imageplot.xindex, self.imageplot.yindex
+            if lsx is None:
+                v = None
+            if v is None:
+                self.v_bin_change = 0
+                self.imageplot.vector_plot.hide()
+            else:
+                th = np.asarray(v[:,0], dtype=float)
+                v_mag = np.asarray(v[:,1], dtype=float)
+                col = np.asarray(v[:,2], dtype=float)
+                y = np.linspace(*lsy)[yindex]
+                x = np.linspace(*lsx)[xindex]
+                df = pd.DataFrame([x, y, np.asarray([1 if i == True else 0 for i in valid]), v_mag, th, col],
+                                    index = ['x', 'y', 'valid', 'v_mag', 'th', 'cols']).T
+
+                v_df = df.pivot_table(values = 'valid', columns = 'x', index = 'y', fill_value = 0)
+                a_df = df.pivot_table(values = 'v_mag', columns = 'x', index = 'y')
+                th_df = df.pivot_table(values = 'th', columns = 'x', index = 'y')
+                col_df = df.pivot_table(values = 'cols', columns = 'x', index = 'y')
+                kernel = np.ones((self.v_bin+1, self.v_bin+1))
+                x_mod, y_mod = v_df.shape[1] % kernel.shape[1], v_df.shape[0] % kernel.shape[0]
+                st_x_idx = int(np.floor(x_mod/2))
+                st_y_idx = int(np.floor(y_mod/2))
+
+                nvalid = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
+                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
+                a = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
+                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
+                th = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
+                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
+                cols = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
+                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
+                columns = v_df.columns
+                rows = v_df.index
+                new_xs, new_ys = [], []
+                for i in range(st_y_idx, v_df.shape[0]-y_mod, kernel.shape[1]):
+                    for j in range(st_x_idx, v_df.shape[1]-x_mod, kernel.shape[0]):
+                        nvalid[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(v_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
+                        a[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(a_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
+                        th[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = self.circular_mean(th_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
+                        cols[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(col_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
+                        new_xs.append(np.sum(columns[j:j+kernel.shape[0]])/kernel.shape[0])
+                        new_ys.append(np.sum(rows[i:i+kernel.shape[1]])/kernel.shape[1])
+                nvalid = nvalid.flatten() > 0 & ~np.isnan(nvalid.flatten())
+                self.a = a.flatten()[nvalid]
+                self.th = th.flatten()[nvalid]
+                self.cols = cols.flatten()[nvalid]
+                self.new_xs = np.asarray(new_xs)[nvalid]
+                self.new_ys = np.asarray(new_ys)[nvalid]
+                if self.v_bin_change == 1:
+                    self.v_bin_change = 0
+                    self.imageplot.update_vectors()
 
     def init_vector_plot(self, data):
         domain = data.domain if data is not None else None
