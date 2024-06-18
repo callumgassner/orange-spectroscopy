@@ -1434,6 +1434,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         self.vector_opts = DomainModel(DomainModel.SEPARATED,
                                        valid_types=DomainModel.PRIMITIVE, placeholder='None')
+
+        self.vector_cbyf_opts = DomainModel(DomainModel.SEPARATED,
+                                            valid_types=(ContinuousVariable,), placeholder='None')
+
         self.vector_col_opts = vector_colour_model(vector_colour)
         self.vector_pal_opts = color_palette_model(_color_palettes, (QSize(64, 16)))
         self.vector_bin_opts = vector_colour_model(bins)
@@ -1457,7 +1461,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         self.v_colour_byval = gui.comboBox(self.vectorbox, self, 'vcol_byval_feat',
                                             label="Vector Colour by Feature",
-                                            model=self.vector_opts,
+                                            model=self.vector_cbyf_opts,
                                             callback=self._update_cbyval)
 
         self.v_colour_byval_select = gui.comboBox(self.vectorbox, self, 'vcol_byval_index',
