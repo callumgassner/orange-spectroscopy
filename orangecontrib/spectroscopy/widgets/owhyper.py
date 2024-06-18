@@ -1445,11 +1445,11 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         self.v_angle_select = gui.comboBox(self.vectorbox, self, 'vector_angle', searchable=True,
                                          label="Vector Angle", model=self.vector_opts,
-                                         callback=self._update_vector)
+                                         callback=self._update_vector_params)
 
         self.v_mag_select = gui.comboBox(self.vectorbox, self, 'vector_magnitude', searchable=True,
                                        label="Vector Magnitude", model=self.vector_opts,
-                                       callback=self._update_vector)
+                                       callback=self._update_vector_params)
 
         self.v_colour_select = gui.comboBox(self.vectorbox, self, 'vector_colour_index',
                                             label="Vector Colour", model=self.vector_col_opts,
@@ -1534,6 +1534,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         cols = self.data.get_column(col) if col else np.full(len(self.data), None)
 
         return np.vstack([angs, mags, cols]).T
+
+    def _update_vector_params(self):
+        self.update_binsize()
+        self._update_vector()
 
     def _update_cbyval(self):
         self.cols = None
