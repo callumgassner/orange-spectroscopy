@@ -657,14 +657,14 @@ class ImageParameterSetter(CommonParameterSetter):
         return []
 
 class VectorPlot(pg.GraphicsObject):
-    
+
     def __init__(self):
         pg.GraphicsObject.__init__(self)
         self.params = None
 
         self._maxSpotPxWidth = 0
         self._boundingRect = None
-    
+
     def setData(self, params):
         self._maxSpotPxWidth = 0
         self._boundingRect = None
@@ -673,23 +673,25 @@ class VectorPlot(pg.GraphicsObject):
         self.prepareGeometryChange()
         self.informViewBoundsChanged()
         self.update()
-        
+
     def viewTransformChanged(self):
         self.prepareGeometryChange()
-    
+
     def paint(self, p, option, widget):
         if self.params is not None:
-            if type(self.params[3]) == tuple:
-                path = pg.arrayToQPath(self.params[0], self.params[1], connect = 'pairs', finiteCheck=False)
+            if isinstance(self.params[3], tuple):
+                path = pg.arrayToQPath(self.params[0], self.params[1],
+                                       connect = 'pairs', finiteCheck=False)
                 pen = QPen(QBrush(QColor(*self.params[3])), self.params[2])
                 pen.setCosmetic(True)
                 p.setPen(pen)
                 p.drawPath(path)
-            elif type(self.params[3]) == list:
+            elif isinstance(self.params[3], list):
                 pen = QPen(QBrush(QColor()), self.params[2])
                 pen.setCosmetic(True)
                 unique_cols = np.unique(self.params[3][0], return_index=True, axis=0)
-                irgbx2 = np.hstack((self.params[3][0], self.params[3][0])).reshape(self.params[3][0].shape[0]*2, 4)
+                irgbx2 = np.hstack((self.params[3][0],
+                                    self.params[3][0])).reshape(self.params[3][0].shape[0]*2, 4)
                 for i in unique_cols[0]:
                     path = pg.arrayToQPath(self.params[0][np.where(irgbx2[:,0] == i[0])],
                                         self.params[1][np.where(irgbx2[:,0] == i[0])],
@@ -1070,8 +1072,8 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
                 v_params = [xcurve, ycurve, w, vcols]
                 self.vector_plot.setData(v_params)
             self.vector_plot.show()
-        if self.parent.vector_colour_index == 8 and \
-            self.parent.vcol_byval_feat is not None:
+            if self.parent.vector_colour_index == 8 and \
+                self.parent.vcol_byval_feat is not None:
                 self.parent.update_vect_legend()
 
     @staticmethod
@@ -1171,7 +1173,7 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
 
         self.refresh_img_selection()
         self.image_updated.emit()
-        
+
         # shift centres of the pixels so that the axes are useful
         shiftx = _shift(lsx)
         shifty = _shift(lsy)
@@ -1363,7 +1365,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
             callback=self.update_rgb_value, model=self.rgb_value_model)
 
         self.cb_vector = gui.checkBox(rbox, self, "show_vector_plot", label="Show vector plot",
-                                      callback=self.enable_vector)   
+                                      callback=self.enable_vector)
 
         splitter = QSplitter(self)
         splitter.setOrientation(Qt.Vertical)
@@ -1413,7 +1415,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         # prepare interface according to the new context
         self.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
-        
+
         self._setup_plot_parameters()
 
     def _setup_plot_parameters(self):
@@ -1435,7 +1437,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.vector_col_opts = vector_colour_model(vector_colour)
         self.vector_pal_opts = color_palette_model(_color_palettes, (QSize(64, 16)))
         self.vector_bin_opts = vector_colour_model(bins)
-        
+
         self.vector_angle = None
         self.vector_magnitude = None
         self.vcol_byval_feat = None
@@ -1452,22 +1454,22 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         self.v_colour_select = gui.comboBox(self.vectorbox, self, 'vector_colour_index',
                                             label="Vector Colour", model=self.vector_col_opts,
                                             callback=self._update_vector)
-        
+
         self.v_colour_byval = gui.comboBox(self.vectorbox, self, 'vcol_byval_feat',
-                                            label="Vector Colour by Feature", model=self.vector_opts,
-                                            callback=self._update_vector)
-        
+                                            label="Vector Colour by Feature",
+                                            model=self.vector_opts,
+                                            callback=self._update_cbyval)
+
         self.v_colour_byval_select = gui.comboBox(self.vectorbox, self, 'vcol_byval_index',
                                             label="", model = self.vector_pal_opts,
-                                            callback=self._update_vector)
+                                            callback=self._update_cbyval)
         self.v_colour_byval_select.setIconSize(QSize(64, 16))
-        
         self.v_colour_byval_select.setEnabled(False)
 
         self.v_scale_slider = gui.hSlider(self.vectorbox, self, 'vector_scale', label="Scale",
                                         minValue=1, maxValue=1000, step=10, createLabel=False,
                                         callback=self._update_vector)
-        
+
         self.v_width_slider = gui.hSlider(self.vectorbox, self, 'vector_width', label="Width",
                                         minValue=1, maxValue=20, step=1, createLabel=False,
                                         callback=self._update_vector)
@@ -1477,7 +1479,8 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                                             callback=self._update_vector)
 
         self.v_bin_select = gui.comboBox(self.vectorbox, self, 'v_bin', label = "Pixel Binning",
-                                         model = self.vector_bin_opts, callback = self._update_binsize)
+                                         model = self.vector_bin_opts,
+                                         callback = self._update_binsize)
 
         self.enable_vector()
 
@@ -1508,7 +1511,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def _update_vector(self):
         self.update_vector_plot_interface()
         self.imageplot.update_vectors()
-        
+
     def update_vect_legend(self):#feat
         if self.v_bin != 0:
             feat = self.cols
@@ -1532,19 +1535,26 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
         return np.vstack([angs, mags, cols]).T
 
+    def _update_cbyval(self):
+        self.cols = None
+        self._update_vector()
+
     def get_vector_colour(self, feat):
         if self.vector_colour_index == 8:
-            if feat[0] == None: # a feat has not been selected yet
+            if feat[0] is None: # a feat has not been selected yet
                 return vector_colour[0][1][0] + (self.vector_opacity,)
             else:
                 if self.v_bin != 0:
-                    self.update_binsize()
+                    if self.cols is None:
+                        self.update_binsize()
                     feat = self.cols
                 fmin, fmax = np.min(feat), np.max(feat)
                 if fmin == fmax:
+                    # put a warning here?
                     return vector_colour[0][1][0] + (self.vector_opacity,)
                 feat_idxs = np.asarray(((feat-fmin)/(fmax-fmin))*255, dtype=int)
-                col_vals = np.asarray(_color_palettes[self.vcol_byval_index][1][0][feat_idxs], dtype=int)
+                col_vals = np.asarray(_color_palettes[self.vcol_byval_index][1][0][feat_idxs],
+                                      dtype=int)
                 out = [np.hstack((np.expand_dims(feat_idxs, 1), col_vals)),
                        self.vector_opacity]
                 return out
@@ -1558,6 +1568,7 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
 
     def _update_binsize(self):
         self.v_bin_change = 1
+        self.cols = None
         self.update_binsize()
 
     def update_binsize(self):
@@ -1580,37 +1591,42 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
                 col = np.asarray(v[:,2], dtype=float)
                 y = np.linspace(*lsy)[yindex]
                 x = np.linspace(*lsx)[xindex]
-                df = pd.DataFrame([x, y, np.asarray([1 if i == True else 0 for i in valid]), v_mag, th, col],
-                                    index = ['x', 'y', 'valid', 'v_mag', 'th', 'cols']).T
+                df = pd.DataFrame(
+                    [x, y, np.asarray([1 if i else 0 for i in valid]),v_mag, th, col],
+                    index = ['x', 'y', 'valid', 'v_mag', 'th', 'cols']).T
 
                 v_df = df.pivot_table(values = 'valid', columns = 'x', index = 'y', fill_value = 0)
                 a_df = df.pivot_table(values = 'v_mag', columns = 'x', index = 'y')
                 th_df = df.pivot_table(values = 'th', columns = 'x', index = 'y')
                 col_df = df.pivot_table(values = 'cols', columns = 'x', index = 'y')
-                kernel = np.ones((self.v_bin+1, self.v_bin+1))
-                x_mod, y_mod = v_df.shape[1] % kernel.shape[1], v_df.shape[0] % kernel.shape[0]
+                bin_sz = self.v_bin+1
+                x_mod, y_mod = v_df.shape[1] % bin_sz, v_df.shape[0] % bin_sz
                 st_x_idx = int(np.floor(x_mod/2))
                 st_y_idx = int(np.floor(y_mod/2))
 
-                nvalid = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
-                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
-                a = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
-                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
-                th = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
-                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
-                cols = np.zeros((int((v_df.shape[0]-y_mod)/kernel.shape[0]),
-                                        int((v_df.shape[1]-x_mod)/kernel.shape[1])))
+                nvalid = np.zeros((int((v_df.shape[0]-y_mod)/bin_sz),
+                                        int((v_df.shape[1]-x_mod)/bin_sz)))
+                a = np.zeros((int((v_df.shape[0]-y_mod)/bin_sz),
+                                        int((v_df.shape[1]-x_mod)/bin_sz)))
+                th = np.zeros((int((v_df.shape[0]-y_mod)/bin_sz),
+                                        int((v_df.shape[1]-x_mod)/bin_sz)))
+                cols = np.zeros((int((v_df.shape[0]-y_mod)/bin_sz),
+                                        int((v_df.shape[1]-x_mod)/bin_sz)))
                 columns = v_df.columns
                 rows = v_df.index
                 new_xs, new_ys = [], []
-                for i in range(st_y_idx, v_df.shape[0]-y_mod, kernel.shape[1]):
-                    for j in range(st_x_idx, v_df.shape[1]-x_mod, kernel.shape[0]):
-                        nvalid[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(v_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
-                        a[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(a_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
-                        th[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = self.circular_mean(th_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
-                        cols[int(i/kernel.shape[1]),int(j/kernel.shape[0])] = np.nanmean(col_df.iloc[i:i+kernel.shape[1],j:j+kernel.shape[0]].to_numpy())
-                        new_xs.append(np.sum(columns[j:j+kernel.shape[0]])/kernel.shape[0])
-                        new_ys.append(np.sum(rows[i:i+kernel.shape[1]])/kernel.shape[1])
+                for i in range(st_y_idx, v_df.shape[0]-y_mod, bin_sz):
+                    for j in range(st_x_idx, v_df.shape[1]-x_mod, bin_sz):
+                        nvalid[int(i/bin_sz),int(j/bin_sz)] = \
+                            np.nanmean(v_df.iloc[i:i+bin_sz,j:j+bin_sz].to_numpy())
+                        a[int(i/bin_sz),int(j/bin_sz)] = \
+                            np.nanmean(a_df.iloc[i:i+bin_sz,j:j+bin_sz].to_numpy())
+                        th[int(i/bin_sz),int(j/bin_sz)] = \
+                            self.circular_mean(th_df.iloc[i:i+bin_sz,j:j+bin_sz].to_numpy())
+                        cols[int(i/bin_sz),int(j/bin_sz)] = \
+                            np.nanmean(col_df.iloc[i:i+bin_sz,j:j+bin_sz].to_numpy())
+                        new_xs.append(np.sum(columns[j:j+bin_sz])/bin_sz)
+                        new_ys.append(np.sum(rows[i:i+bin_sz])/bin_sz)
                 nvalid = nvalid.flatten() > 0 & ~np.isnan(nvalid.flatten())
                 self.a = a.flatten()[nvalid]
                 self.th = th.flatten()[nvalid]
