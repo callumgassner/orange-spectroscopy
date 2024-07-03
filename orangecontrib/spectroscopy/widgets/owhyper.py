@@ -1061,6 +1061,8 @@ class ImagePlot(QWidget, OWComponent, SelectionGroupMixin,
                 v_params = [xcurve, ycurve, w, vcols]
                 self.vector_plot.setData(v_params)
             else:
+                if self.parent.a is None:
+                    self.parent.update_binsize()
                 amp = self.parent.a / max(self.parent.a) * (scale/100)
                 dispx = amp*wx/2*np.cos(self.parent.th)
                 dispy = amp*wy/2*np.sin(self.parent.th)
