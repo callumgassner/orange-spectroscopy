@@ -80,10 +80,8 @@ def combine_visimg(data, polangles):
         try:
             temp = i.attributes['visible_images']
             for j in temp:
-                tempname = str(j['name'] + f'({polangles[k]} Degrees)')
-                dictcopy = j.copy()
-                dictcopy.update({'name': tempname})
-                atts = atts + [dictcopy]
+                j.name = str(j.name + f' ({polangles[k]} Degrees)')
+                atts.append(j)
         except KeyError:
             pass
         except AttributeError:
@@ -355,7 +353,7 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
 
     if state.is_interruption_requested():
         return None, None, None, None, 2
-    
+
     with SharedMemoryManager() as smm:
         tcvs = smm.SharedMemory(size=cvs.nbytes)
         scvs = np.ndarray(cvs.shape, dtype=cvs.dtype, buffer=tcvs.buf)
@@ -372,7 +370,6 @@ def process_polar_abs(images, alpha, feature, map_x, map_y, invert, polangles, a
         tvars = smm.SharedMemory(size=vars.nbytes)
         svars = np.ndarray(vars.shape, dtype=vars.dtype, buffer=tvars.buf)
         svars[:] = vars[:]
-        svars[:] = vars[:] # vars[1] == 0 -> continue processing, vars[1] == 1 -> data is incompatible, vars[1] == 2 -> interruption requested
 
         smms = [tcvs, None, None, tout, tmod, tcoords, tvars]
         shapes = [cvs.shape, spec.shape, metas.shape, out.shape, mod.shape, coords.shape, vars.shape]
