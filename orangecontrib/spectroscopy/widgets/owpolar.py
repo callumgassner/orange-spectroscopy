@@ -179,9 +179,6 @@ def azimuth_jac(x, a0, a1, a2):
 def calc_angles(a0,a1):
     return np.degrees(0.5*np.arctan(a0/a1))
 
-def ampl1(a0,a1,a2):
-    return (a2+(math.sqrt(a0**2+a1**2))+a2-(math.sqrt(a0**2+a1**2)))
-
 def ampl2(a0,a1):
     return (2*(math.sqrt(a0**2+a1**2)))
 
@@ -253,7 +250,7 @@ def compute(xys, yidx, smms, shapes, dtypes, polangles):
                 mod[i,j[0],l,2] = 1-(ss_res/ss_tot)
                 out[i,j[0],l,2] = find_az(vars[0], params)
                 out[i,j[0],l,3] = orfunc(vars[0], *params)
-                out[i,j[0],l,4] = ampl1(*params)
+                out[i,j[0],l,4] = params[2]
                 out[i,j[0],l,5] = ampl2(params[0],params[1])
                 mod[i,j[0],l,3] = params[0]
                 mod[i,j[0],l,4] = params[1]
