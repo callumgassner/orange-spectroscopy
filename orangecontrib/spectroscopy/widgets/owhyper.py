@@ -1,5 +1,6 @@
 import collections.abc
 import math
+import warnings
 from collections import OrderedDict
 from xml.sax.saxutils import escape
 
@@ -25,6 +26,7 @@ from PIL import Image
 import Orange.data
 from Orange.preprocess.transformation import Identity
 from Orange.data import Domain, DiscreteVariable, ContinuousVariable
+from Orange.util import OrangeDeprecationWarning
 from Orange.widgets.visualize.utils.customizableplot import CommonParameterSetter
 from Orange.widgets.widget import OWWidget, Msg, OWComponent, Input
 from Orange.widgets import gui
@@ -45,6 +47,7 @@ from orangecontrib.spectroscopy.widgets.owspectra import InteractiveViewBox, \
     HelpEventDelegate, selection_modifiers, \
     ParameterSetter as SpectraParameterSetter
 
+from orangecontrib.spectroscopy.io.util import VisibleImage
 from orangecontrib.spectroscopy.widgets.gui import MovableVline, lineEditDecimalOrNone,\
     pixels_to_decimals, float_to_str_decimals
 from orangecontrib.spectroscopy.widgets.line_geometry import in_polygon
@@ -145,7 +148,7 @@ class VisibleImageListModel(PyListModel):
         if self._is_index_valid(index):
             img = self[index.row()]
             if role == Qt.DisplayRole:
-                return img["name"]
+                return img.name if isinstance(img, VisibleImage) else img["name"]
         return PyListModel.data(self, index, role)
 
 
@@ -1736,6 +1739,10 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         if data is not None and 'visible_images' in data.attributes:
             self.visbox.setEnabled(True)
             for img in data.attributes['visible_images']:
+                if not isinstance(img, VisibleImage):
+                    warnings.warn("Visible images need to subclass VisibleImage; "
+                                  "Backward compatibility will be removed in the future.",
+                                  OrangeDeprecationWarning)
                 self.visible_image_model.append(img)
         else:
             self.visbox.setEnabled(False)
@@ -1748,7 +1755,8 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
         # choose an image according to visible_image_name setting
         if len(self.visible_image_model):
             for img in self.visible_image_model:
-                if img["name"] == self.visible_image_name:
+                name = img.name if isinstance(img, VisibleImage) else img["name"]
+                if name == self.visible_image_name:
                     self.visible_image = img
                     break
             else:
@@ -1936,18 +1944,29 @@ class OWHyper(OWWidget, SelectionOutputsMixin):
     def update_visible_image(self):
         img_info = self.visible_image
         if self.show_visible_image and img_info is not None:
-            self.visible_image_name = img_info["name"]  # save visual image name
-            img = Image.open(img_info['image_ref']).convert('RGBA')
+            if isinstance(img_info, VisibleImage):
+                name = img_info.name
+                img = np.array(img_info.image.convert('RGBA'))
+                width = img_info.size_x
+                height = img_info.size_y
+                pos_x = img_info.pos_x
+                pos_y = img_info.pos_y
+            else:
+                name = img_info["name"]
+                img = np.array(Image.open(img_info['image_ref']).convert('RGBA'))
+                width = img_info['img_size_x'] if 'img_size_x' in img_info \
+                    else img.shape[1] * img_info['pixel_size_x']
+                height = img_info['img_size_y'] if 'img_size_y' in img_info \
+                    else img.shape[0] * img_info['pixel_size_y']
+                pos_x = img_info['pos_x']
+                pos_y = img_info['pos_y']
+            self.visible_image_name = name  # save visual image name
             # image must be vertically flipped
             # https://github.com/pyqtgraph/pyqtgraph/issues/315#issuecomment-214042453
             # Behavior may change at pyqtgraph 1.0 version
-            img = np.array(img)[::-1]
-            width = img_info['img_size_x'] if 'img_size_x' in img_info \
-                else img.shape[1] * img_info['pixel_size_x']
-            height = img_info['img_size_y'] if 'img_size_y' in img_info \
-                else img.shape[0] * img_info['pixel_size_y']
-            rect = QRectF(img_info['pos_x'],
-                          img_info['pos_y'],
+            img = img[::-1]
+            rect = QRectF(pos_x,
+                          pos_y,
                           width,
                           height)
             self.imageplot.set_visible_image(img, rect)

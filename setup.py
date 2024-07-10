@@ -86,7 +86,7 @@ class LintCommand(Command):
                     awk '/[@\/]github.com[:\/]Quasars\/orange-spectroscopy[\. ]/{ print $1; exit }')"
         git fetch -q $upstream master
         best_ancestor=$(git merge-base HEAD refs/remotes/$upstream/master)
-        .travis/check_pylint_diff $best_ancestor
+        .github/workflows/check_pylint_diff.sh $best_ancestor
         ''', shell=True, cwd=os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -120,7 +120,7 @@ if __name__ == '__main__':
         long_description_content_type='text/markdown',
         author='Canadian Light Source, Biolab UL, Soleil, Elettra',
         author_email='marko.toplak@gmail.com',
-        version="0.6.13",
+        version="0.6.15",
         packages=PACKAGES,
         package_data=PACKAGE_DATA,
         data_files=DATA_FILES,
