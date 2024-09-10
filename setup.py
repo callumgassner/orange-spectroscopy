@@ -120,14 +120,14 @@ if __name__ == '__main__':
         long_description_content_type='text/markdown',
         author='Canadian Light Source, Biolab UL, Soleil, Elettra',
         author_email='marko.toplak@gmail.com',
-        version="0.6.15",
+        version="0.6.16",
         packages=PACKAGES,
         package_data=PACKAGE_DATA,
         data_files=DATA_FILES,
         install_requires=[
             'setuptools>=36.3',  # same as for Orange 3.28
             'pip>=9.0',  # same as for Orange 3.28
-            'numpy>=1.20.0,<2.0.0',
+            'numpy>=1.21.0,<2.0.0',
             'Orange3>=3.34.0',
             'orange-canvas-core>=0.1.28',
             'orange-widget-base>=4.19.0',
@@ -141,8 +141,8 @@ if __name__ == '__main__':
             'h5py',
             'extranormal3 >=0.0.3',
             'renishawWiRE>=0.1.8',
-            'pillow',
-            'lmfit>=1.3.1',
+            'pillow>=9.0.0',
+            'lmfit>=1.3.2',
             'bottleneck',
             'pebble',
             'agilent-format>=0.4.5'

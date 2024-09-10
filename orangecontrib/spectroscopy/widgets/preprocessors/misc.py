@@ -3,25 +3,25 @@ import pyqtgraph as pg
 
 from AnyQt.QtCore import Qt
 from AnyQt.QtWidgets import (
-    QComboBox, QSpinBox, QVBoxLayout, QFormLayout, QSizePolicy, QLabel
+    QComboBox, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel
 )
 from AnyQt.QtGui import QColor
 
 from Orange.widgets import gui
 from Orange.widgets.widget import Msg
-from Orange.widgets.data.owpreprocess import blocked
 
 from orangecontrib.spectroscopy.data import getx
 
 from orangecontrib.spectroscopy.preprocess import (
     PCADenoising, GaussianSmoothing, Cut, SavitzkyGolayFiltering,
     Absorbance, Transmittance,
-    CurveShift, SpSubtract
+    ShiftAndScale, SpSubtract,
+    MNFDenoising
 )
 from orangecontrib.spectroscopy.preprocess.transform import SpecTypes
 from orangecontrib.spectroscopy.widgets.gui import lineEditFloatRange, MovableVline, \
     connect_line, floatornone, round_virtual_pixels
-from orangecontrib.spectroscopy.widgets.preprocessors.utils import BaseEditor, BaseEditorOrange, \
+from orangecontrib.spectroscopy.widgets.preprocessors.utils import BaseEditorOrange, \
     REFERENCE_DATA_PARAM
 from orangecontrib.spectroscopy.widgets.preprocessors.registry import preprocess_editors
 
@@ -86,7 +86,8 @@ class CutEditor(BaseEditorOrange):
 
         self._lowlime = lineEditFloatRange(self, self, "lowlim", callback=self.edited.emit)
         self._highlime = lineEditFloatRange(self, self, "highlim", callback=self.edited.emit)
-        self._inverse = gui.radioButtons(self, self, "inverse", orientation=Qt.Horizontal, callback=self.edited.emit)
+        self._inverse = gui.radioButtons(self, self, "inverse",
+                                         orientation=Qt.Horizontal, callback=self.edited.emit)
 
         gui.appendRadioButton(self._inverse, "Keep")
         gui.appendRadioButton(self._inverse, "Remove")
@@ -295,77 +296,108 @@ class SavitzkyGolayFilteringEditor(BaseEditorOrange):
         return SavitzkyGolayFiltering(window=window, polyorder=polyorder, deriv=deriv)
 
 
-class CurveShiftEditor(BaseEditorOrange):
+class ShiftAndScaleEditor(BaseEditorOrange):
     """
-    Editor for CurveShift
+    Editor for ShiftAndScale
     """
     # TODO: the layout changes when I click the area of the preprocessor
     #       EFFECT: the sidebar snaps in
 
-    name = "Shift Spectra"
-    qualname = "orangecontrib.infrared.curveshift"
+    name = "Shift and scale"
+    qualname = "orangecontrib.spectroscopy.shiftandscale"
+    replaces = ["orangecontrib.infrared.curveshift"]
 
     def __init__(self, parent=None, **kwargs):
         super().__init__(parent, **kwargs)
 
-        self.amount = 0.
+        self.offset = 0.
+        self.scale = 1.
 
         form = QFormLayout()
-        amounte = lineEditFloatRange(self, self, "amount", callback=self.edited.emit)
-        form.addRow("Shift Amount", amounte)
+        offset_input = lineEditFloatRange(self, self, "offset", callback=self.edited.emit)
+        form.addRow("Vertical offset", offset_input)
+        scale_input = lineEditFloatRange(self, self, "scale", callback=self.edited.emit)
+        form.addRow("Vertical scaling", scale_input)
         self.controlArea.setLayout(form)
 
     def setParameters(self, params):
-        self.amount = params.get("amount", 0.)
+        self.amount = params.get("offset", 0.)
+        self.scale = params.get("scale", 1.)
 
     @staticmethod
     def createinstance(params):
         params = dict(params)
-        amount = float(params.get("amount", 0.))
-        return CurveShift(amount=amount)
+        offset = float(params.get("offset", 0.))
+        scale = float(params.get("scale", 1.))
+        return ShiftAndScale(offset=offset, scale=scale)
 
 
-class PCADenoisingEditor(BaseEditor):
+class PCADenoisingEditor(BaseEditorOrange):
     name = "PCA denoising"
     qualname = "orangecontrib.infrared.pca_denoising"
 
     def __init__(self, parent=None, **kwargs):
-        BaseEditor.__init__(self, parent, **kwargs)
-        self.__components = 5
+        super().__init__(parent, **kwargs)
+
+        self.components = 5
 
         form = QFormLayout()
+        self.controlArea.setLayout(form)
 
-        self.__compspin = compspin = QSpinBox(
-            minimum=1, maximum=100, value=self.__components)
-        form.addRow("N components", compspin)
+        compspin = gui.spin(self, self, "components", minv=1, maxv=100,
+                            step=1, callback=self.edited.emit)
 
-        self.setLayout(form)
+        endlabel = QLabel("components.")
+        hboxLayout = QHBoxLayout()
+        hboxLayout.addWidget(compspin)
+        hboxLayout.addWidget(endlabel)
 
-        compspin.valueChanged[int].connect(self.setComponents)
-        compspin.editingFinished.connect(self.edited)
-        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-
-    def setComponents(self, components):
-        if self.__components != components:
-            self.__components = components
-            with blocked(self.__compspin):
-                self.__compspin.setValue(components)
-            self.changed.emit()
-
-    def sd(self):
-        return self.__components
+        form.addRow("Keep", hboxLayout)
 
     def setParameters(self, params):
-        self.setComponents(params.get("components", 5))
-
-    def parameters(self):
-        return {"components": self.__components}
+        self.components = params.get("components", 5)
 
     @staticmethod
     def createinstance(params):
         params = dict(params)
         components = params.get("components", 5)
         return PCADenoising(components=components)
+
+
+class MNFDenoisingEditor(BaseEditorOrange):
+    """
+    Editor for Minimum Noise Fraction denoising
+    """
+
+    name = "MNF denoising"
+    qualname = "orangecontrib.spectroscopy.mnf_denoising"
+
+    def __init__(self, parent=None, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.components = 5
+
+        form = QFormLayout()
+        self.controlArea.setLayout(form)
+
+        compspin = gui.spin(self, self, "components", minv=1, maxv=100,
+                            step=1, callback=self.edited.emit)
+
+        endlabel = QLabel("components.")
+        hboxLayout = QHBoxLayout()
+        hboxLayout.addWidget(compspin)
+        hboxLayout.addWidget(endlabel)
+
+        form.addRow("Keep", hboxLayout)
+
+    def setParameters(self, params):
+        self.components = params.get("components", 5)
+
+    @staticmethod
+    def createinstance(params):
+        params = dict(params)
+        components = params.get("components", 5)
+        return MNFDenoising(components=components)
 
 
 class SpectralTransformEditor(BaseEditorOrange):
@@ -462,5 +494,6 @@ preprocess_editors.register(GaussianSmoothingEditor, 75)
 preprocess_editors.register(SavitzkyGolayFilteringEditor, 100)
 preprocess_editors.register(PCADenoisingEditor, 200)
 preprocess_editors.register(SpectralTransformEditor, 225)
-preprocess_editors.register(CurveShiftEditor, 250)
+preprocess_editors.register(ShiftAndScaleEditor, 250)
 preprocess_editors.register(SpSubtractEditor, 275)
+preprocess_editors.register(MNFDenoisingEditor, 300)

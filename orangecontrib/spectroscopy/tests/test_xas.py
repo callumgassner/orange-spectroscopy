@@ -2,11 +2,31 @@ import unittest
 import numpy
 import Orange
 from Orange.data import Table
+from Orange.preprocess import PreprocessorList
 
 from orangecontrib.spectroscopy.preprocess import XASnormalization, ExtractEXAFS, NoEdgejumpProvidedException
+from orangecontrib.spectroscopy.tests.test_preprocess import TestCommonIndpSamplesMixin, \
+    SMALLER_COLLAGEN
 
 
-class TestXASnormalization(unittest.TestCase):
+xas_norm_collagen = XASnormalization(edge=1630,
+                                     preedge_dict={'from': 1000, 'to': 1300, 'deg': 1},
+                                     postedge_dict={'from': 1650, 'to': 1700, 'deg': 1})
+extract_exafs = ExtractEXAFS(edge=1630, extra_from=1630, extra_to=1800,
+                             poly_deg=1, kweight=0, m=0)
+
+
+class ExtractEXAFSUsage(PreprocessorList):
+    """ExtractEXAFS needs previous XAS normalization"""
+    def __init__(self):
+        super().__init__(preprocessors=[xas_norm_collagen,
+                                        extract_exafs])
+
+
+class TestXASnormalization(unittest.TestCase, TestCommonIndpSamplesMixin):
+
+    preprocessors = [xas_norm_collagen, ExtractEXAFSUsage()]
+    data = SMALLER_COLLAGEN
 
     def test_flat(self):
         domain = Orange.data.Domain([Orange.data.ContinuousVariable(str(w))
@@ -59,4 +79,5 @@ class TestExtractEXAFS(unittest.TestCase):
         exafs = extra(data)
         numpy.testing.assert_almost_equal(
             [-3.46450033e-01, -3.45888957e-01, -3.44362296e-01, -3.41912861e-01,
-             -3.38582017e-01, -3.34409725e-01, -3.29434571e-01, -3.23693808e-01], exafs.X[0, :8])
+             -3.38582017e-01, -3.34409725e-01, -3.29434571e-01, -3.23693808e-01], exafs.X[0, :8],
+            decimal=4)

@@ -28,6 +28,85 @@ from orangecontrib.spectroscopy.preprocess.utils import SelectColumn, CommonDoma
     linear_baseline
 
 
+class MNFDenoising(Preprocess):
+
+    def __init__(self, components=None):
+        self.components = components
+
+    def __call__(self, data):
+        if data and len(data.domain.attributes):
+            # maxsvd = min(len(data.domain.attributes), len(data))
+            commonfn = _MNFCommon(data.domain, self.components)
+
+            nats = [at.copy(compute_value=MNFDenoisingFeature(i, commonfn))
+                    for i, at in enumerate(data.domain.attributes)]
+        else:
+            # FIXME we should have a warning here
+            nats = [at.copy(compute_value=lambda d: np.full((len(d), 1), np.nan))
+                    for at in data.domain.attributes]
+
+        domain = Orange.data.Domain(nats, data.domain.class_vars,
+                                    data.domain.metas)
+
+        return data.from_table(domain, data)
+
+
+class MNFDenoisingFeature(SelectColumn):
+    InheritEq = True
+
+
+class _MNFCommon(CommonDomainOrderUnknowns):
+
+    def __init__(self, domain, components):
+        super().__init__(domain)
+        self.domain = domain
+        self.components = components
+
+    def transformed(self, X, _):
+        """
+        Minimum Noise Fraction calculation
+
+        This version is from the paper of R. Bhargava
+            https://doi.org/10.1371/journal.pone.0205219
+
+        TODO: implement the enhanced version using consecutive measurements
+            https://doi.org/10.1016/j.chemolab.2023.105042
+
+        :param data: data table
+        :param components: number of components to retain
+        :return: denoised data cube
+        """
+
+        m = X.shape
+
+        diffs = -np.diff(X, axis=0)
+        N = diffs
+
+        # noise whitening
+        V1, S, _ = np.linalg.svd(np.dot(N.T, N))
+        # s1 = s1 ** -0.5
+        S = np.linalg.inv(np.sqrt(np.diag(S)))
+        W = np.dot(np.dot(X, V1), S)
+
+        # directions maximizing signal variance
+        G1, _, _ = np.linalg.svd(np.dot(W.T, W))
+
+        # Final MNF projection vectors calculation
+        P = np.dot(np.dot(V1, S), G1)
+
+        # X data on the MNF directions space
+        M = np.dot(X, P)
+
+        # choice of top components
+        R = np.eye(m[1], m[1])
+        R[self.components:, self.components:] = 0
+
+        # inverse MNF transformation
+        D = np.dot(np.dot(M, R), np.linalg.inv(P))
+
+        return D
+
+
 class PCADenoisingFeature(SelectColumn):
     InheritEq = True
 
@@ -730,28 +809,40 @@ class ExtractEXAFS(Preprocess):
         return data.transform(domain)
 
 
-class CurveShiftFeature(SelectColumn):
+class ShiftAndScaleFeature(SelectColumn):
     InheritEq = True
 
 
-class _CurveShiftCommon(CommonDomain):
+class _ShiftAndScaleCommon(CommonDomain):
 
-    def __init__(self, amount, domain):
+    def __init__(self, offset, scale, domain):
         super().__init__(domain)
-        self.amount = amount
+        self.offset = offset
+        self.scale = scale
+
 
     def transformed(self, data):
-        return data.X + self.amount
+        return self.scale * data.X + self.offset
 
 
-class CurveShift(Preprocess):
+class ShiftAndScale(Preprocess):
+    """
+    Shift and scale of the data into the form:
+    y = scale * x + offset
 
-    def __init__(self, amount=0.):
-        self.amount = amount
+    Parameters
+    ----------
+    offset : float
+    scale  : float
+    """
+
+    def __init__(self, offset=0., scale=1.):
+        self.offset = offset
+        self.scale = scale
 
     def __call__(self, data):
-        common = _CurveShiftCommon(self.amount, data.domain)
-        atts = [a.copy(compute_value=CurveShiftFeature(i, common))
+        common = _ShiftAndScaleCommon(self.offset, self.scale, data.domain)
+        atts = [a.copy(compute_value=ShiftAndScaleFeature(i, common))
                 for i, a in enumerate(data.domain.attributes)]
         domain = Orange.data.Domain(atts, data.domain.class_vars,
                                     data.domain.metas)
