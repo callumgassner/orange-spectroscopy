@@ -933,8 +933,8 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         layout.setRowStretch(1, 1)
         layout.setColumnStretch(1, 1)
         layout.addWidget(self.button, 0, 0)
-        self.view_menu = MenuFocus(self)
-        self.button.setMenu(self.view_menu)
+        view_menu = MenuFocus(self)
+        self.button.setMenu(view_menu)
 
         # prepare interface according to the new context
         self.parent.contextAboutToBeOpened.connect(lambda x: self.init_interface_data(x[0]))
@@ -965,7 +965,7 @@ class BasicImagePlot(QWidget, OWComponent, SelectionGroupMixin,
         box.layout().addWidget(self.rgb_settings_box)
 
         choose_xy.setDefaultWidget(box)
-        self.view_menu.addAction(choose_xy)
+        view_menu.addAction(choose_xy)
 
         self.lsx = None  # info about the X axis
         self.lsy = None  # info about the Y axis
